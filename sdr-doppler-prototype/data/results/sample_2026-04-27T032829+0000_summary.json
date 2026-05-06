@@ -1,0 +1,10 @@
+{
+  "input_file": "data\\raw\\sample.npy",
+  "timestamp_utc": "2026-04-27T03:28:29+00:00",
+  "detection_result": true,
+  "confidence_score": 0.9942023155700411,
+  "valid_signal_ratio": 1.0,
+  "frequency_drift_hz": 79453.125,
+  "smoothness_score": 104.35831973925912,
+  "notes": "candidate satellite Doppler-like drift"
+}
