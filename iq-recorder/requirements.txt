@@ -1,0 +1,5 @@
+# Phase 1 (simulation + manual recording) uses only the Python standard
+# library - no third-party runtime dependencies.
+#
+# Testing:
+pytest>=7.0

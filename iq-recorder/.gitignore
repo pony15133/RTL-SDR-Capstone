@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Recordings and their metadata are runtime output, not source.
+recordings/*.iq
+recordings/*.json
+!recordings/.gitkeep
