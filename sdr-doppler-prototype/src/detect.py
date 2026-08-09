@@ -1,9 +1,28 @@
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.ndimage import median_filter
 
+from features.extractor import (
+    FeatureVector,
+    calculate_smoothness,
+    extract_features,
+    extract_strongest_trace,
+    smooth_trace,
+)
 from spectrogram import SpectrogramData
+
+# Re-exported for backward compatibility: this module used to define
+# extract_strongest_trace/smooth_trace/calculate_smoothness itself. They now
+# live in features.extractor (shared with the ML detector), and are
+# imported back here unchanged so any existing `from detect import ...`
+# usage keeps working.
+__all__ = [
+    "DetectionResult",
+    "extract_strongest_trace",
+    "smooth_trace",
+    "calculate_smoothness",
+    "detect_candidate",
+]
 
 
 @dataclass
@@ -19,62 +38,32 @@ class DetectionResult:
     notes: str
 
 
-def extract_strongest_trace(
-    spec: SpectrogramData,
-    snr_threshold_db: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    power = spec.power_db
-    strongest_bins = np.argmax(power, axis=1)
-    strongest_power = power[np.arange(power.shape[0]), strongest_bins]
-
-    # Estimate the local noise floor for each time slice from the median bin.
-    noise_floor = np.median(power, axis=1)
-    valid_mask = strongest_power >= (noise_floor + snr_threshold_db)
-    trace_hz = spec.frequencies_hz[strongest_bins].astype(float)
-    trace_hz[~valid_mask] = np.nan
-    return trace_hz, valid_mask
-
-
-def smooth_trace(trace_hz: np.ndarray, kernel_size: int = 7) -> np.ndarray:
-    if kernel_size % 2 == 0:
-        kernel_size += 1
-    finite = np.isfinite(trace_hz)
-    if not finite.any():
-        return trace_hz.copy()
-
-    x = np.arange(trace_hz.size)
-    filled = np.interp(x, x[finite], trace_hz[finite])
-    smoothed = median_filter(filled, size=kernel_size, mode="nearest")
-    smoothed[~finite] = np.nan
-    return smoothed
-
-
-def calculate_smoothness(smoothed_trace_hz: np.ndarray) -> float:
-    finite = np.isfinite(smoothed_trace_hz)
-    if finite.sum() < 3:
-        return float("inf")
-    diffs = np.diff(smoothed_trace_hz[finite])
-    return float(np.std(diffs))
-
-
 def detect_candidate(
     spec: SpectrogramData,
     min_valid_ratio: float,
     min_drift_hz: float,
     max_smoothness_hz: float,
     snr_threshold_db: float,
+    features: FeatureVector = None,
 ) -> DetectionResult:
-    trace_hz, valid_mask = extract_strongest_trace(spec, snr_threshold_db)
-    smoothed = smooth_trace(trace_hz)
-    valid_ratio = float(np.mean(valid_mask)) if valid_mask.size else 0.0
+    """The rule-based (threshold) detector - the project's baseline.
 
-    finite = np.isfinite(smoothed)
-    if finite.sum() >= 2:
-        drift = float(abs(smoothed[finite][-1] - smoothed[finite][0]))
-    else:
-        drift = 0.0
+    This is deliberately unchanged in behaviour from the original
+    implementation: same thresholds, same confidence heuristic, same
+    output. The only refactor is that the underlying trace/valid-ratio/
+    drift/smoothness numbers now come from `features.extractor` instead
+    of being computed twice (once here, once for the ML detector).
 
-    smoothness = calculate_smoothness(smoothed)
+    Pass `features` (e.g. one already computed for the ML detector) to
+    avoid recomputing it; otherwise it's computed internally.
+    """
+    if features is None:
+        features = extract_features(spec, snr_threshold_db)
+
+    valid_ratio = features.valid_signal_ratio
+    drift = features.frequency_drift_hz
+    smoothness = features.smoothness_score
+
     enough_signal = valid_ratio >= min_valid_ratio
     enough_drift = drift >= min_drift_hz
     smooth_enough = smoothness <= max_smoothness_hz
@@ -101,8 +90,8 @@ def detect_candidate(
         valid_signal_ratio=valid_ratio,
         frequency_drift_hz=drift,
         smoothness_score=smoothness,
-        strongest_trace_hz=trace_hz,
-        smoothed_trace_hz=smoothed,
-        valid_mask=valid_mask,
+        strongest_trace_hz=features.strongest_trace_hz,
+        smoothed_trace_hz=features.smoothed_trace_hz,
+        valid_mask=features.valid_mask,
         notes="; ".join(notes),
     )
