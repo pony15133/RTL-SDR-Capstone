@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Trained models are run-time artifacts, not source - keep the directory
+# structure (models/.gitkeep) but not any real trained model files.
+models/*.joblib
+models/*.json
+!models/.gitkeep

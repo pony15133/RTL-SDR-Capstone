@@ -1,3 +1,9 @@
 numpy
 scipy
 matplotlib
+pandas
+scikit-learn
+joblib
+
+# Testing
+pytest

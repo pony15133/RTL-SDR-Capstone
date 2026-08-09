@@ -7,6 +7,13 @@ RAW_DIR = DATA_DIR / "raw"
 SPECTROGRAM_DIR = DATA_DIR / "spectrograms"
 RESULTS_DIR = DATA_DIR / "results"
 DB_PATH = RESULTS_DIR / "captures.sqlite3"
+TRAINING_DATA_DIR = DATA_DIR / "training"
+
+# ML component. The default model path may simply not exist yet (no
+# trained model) - main.py's pipeline must keep working in that case; see
+# detection/ml_detector.py MODEL_NOT_AVAILABLE.
+MODELS_DIR = PROJECT_ROOT / "models"
+DEFAULT_ML_MODEL_PATH = MODELS_DIR / "random_forest.joblib"
 
 DEFAULT_SAMPLE_RATE_HZ = 240_000.0
 DEFAULT_CENTER_FREQ_HZ = 136_800_000.0
