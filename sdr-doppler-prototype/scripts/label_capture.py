@@ -16,7 +16,6 @@ Example:
 """
 
 import argparse
-import csv
 import sys
 from pathlib import Path
 
@@ -35,12 +34,11 @@ from config import (  # noqa: E402
 )
 from detect import detect_candidate  # noqa: E402
 from detection.ml_detector import run_ml_detection  # noqa: E402
-from features.extractor import FEATURE_NAMES, extract_features  # noqa: E402
+from features.dataset_io import append_row, prompt_for_label  # noqa: E402
+from features.extractor import extract_features  # noqa: E402
 from load_data import load_input  # noqa: E402
 from spectrogram import iq_to_spectrogram, matrix_to_spectrogram, save_spectrogram_image  # noqa: E402
 from storage import safe_stem, utc_timestamp  # noqa: E402
-
-CSV_COLUMNS = ["capture_id", *FEATURE_NAMES, "label", "is_synthetic", "source_file", "sample_rate_hz", "nperseg", "noverlap", "notes"]
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -63,28 +61,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--label", type=int, choices=[0, 1], default=None, help="Provide the label directly instead of being prompted (1=satellite candidate, 0=not)")
     parser.add_argument("--notes", default="", help="Free-text note stored with this row")
     return parser
-
-
-def prompt_for_label() -> "int | None":
-    while True:
-        raw = input("Label this capture [1 = satellite candidate / 0 = not / s = skip]: ").strip().lower()
-        if raw in ("1", "y", "yes"):
-            return 1
-        if raw in ("0", "n", "no"):
-            return 0
-        if raw in ("s", "skip", ""):
-            return None
-        print("Please enter 1, 0, or s to skip.")
-
-
-def append_row(csv_path: Path, row: dict) -> None:
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    file_has_content = csv_path.exists() and csv_path.stat().st_size > 0
-    with csv_path.open("a", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS)
-        if not file_has_content:
-            writer.writeheader()
-        writer.writerow(row)
 
 
 def run(args: argparse.Namespace) -> int:

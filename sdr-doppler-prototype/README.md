@@ -159,6 +159,16 @@ python scripts/label_capture.py --input <capture> --dataset data/training/featur
 
 Runs the pipeline on a real capture, shows both detectors' opinions and the extracted features, and appends your label to the dataset (always `is_synthetic=0`). See `data/training/README.md` for the full collection workflow (recording real passes vs. negative examples, minimum dataset size guidance, etc.).
 
+For a whole folder of raw captures at once (instead of one file per command), use `scripts/build_training_dataset.py` - it labels each file from a manifest CSV, a `positive`/`negative` folder convention, or a single `--label` for the whole folder, then appends all of them to the same training CSV:
+
+```bash
+python scripts/build_training_dataset.py --input-dir /path/to/captures --recursive \
+  --labels-csv data/training/my_labels.csv --dataset data/training/features.csv \
+  --sample-rate 2400000 --center-freq 137900000 --binary-dtype complex64
+```
+
+Training itself is unchanged either way - both tools write the same CSV schema, so `train_model.py --dataset data/training/features.csv --output models/random_forest.joblib` works regardless of how the CSV was built. See `data/training/README.md` for the three label-source modes in detail.
+
 ## Database
 
 Initialize manually:
