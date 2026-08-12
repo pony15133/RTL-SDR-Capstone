@@ -80,6 +80,16 @@ python src/main.py \
 
 The notebook material this prototype was based on saved spectrogram text files with time rows and frequency columns. This prototype uses the same assumption for text matrices.
 
+### Converting SigMF captures
+
+If your capture is in [SigMF](https://github.com/sigmf/SigMF) format (a `.sigmf-meta` JSON file plus a sibling `.sigmf-data` raw binary file - common when downloading third-party SDR datasets), convert it to a project-ready `.npy` first:
+
+```bash
+python scripts/convert_sigmf_to_iq.py --meta capture.sigmf-meta --data capture.sigmf-data --output data/raw/capture.npy
+```
+
+This reads `global."core:datatype"` from the metadata (`ci16_le`, `cu8`, `cf32_le`, etc. - any complex SigMF datatype) to interpret the raw bytes, deinterleaves I/Q, scales integer formats to roughly `[-1, 1]` (unsigned formats like `cu8` are DC-centred the same way RTL-SDR's own native format is), and writes a `complex64` `.npy` that `main.py`/`label_capture.py`/the other tools all already understand. It also prints `core:sample_rate` and the first capture's `core:frequency` from the metadata, if present, as a reminder of what to pass as `--sample-rate`/`--center-freq` downstream - the SigMF metadata isn't embedded in the `.npy` itself. A real-valued (non-IQ) SigMF file is rejected with a clear error rather than silently misread. This is also wired up as the "Convert SigMF" option in `gui_app.py`.
+
 ## Machine Learning Component
 
 **Status: IMPLEMENTED BUT NOT VALIDATED.** The Random Forest pipeline is fully operational, but no model has been trained on real, labelled RTL-SDR captures yet - only synthetic data (clearly marked as such) has been used to verify the pipeline runs correctly. Do not treat any evaluation metrics produced so far as real-world accuracy.

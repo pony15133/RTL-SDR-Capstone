@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 import csv
 
-from features.extractor import FEATURE_NAMES
+from features.extractor import FEATURE_NAMES, FeatureVector, feature_vector_to_array
 
 #: The training CSV schema - see data/training/README.md for the full
 #: column-by-column documentation. Kept here (not duplicated) so every
@@ -18,6 +18,23 @@ CSV_COLUMNS = [
     "capture_id", *FEATURE_NAMES, "label", "is_synthetic",
     "source_file", "sample_rate_hz", "nperseg", "noverlap", "notes",
 ]
+
+
+def feature_row_values(features: FeatureVector) -> dict:
+    """The 9 ML feature values as {name: value}, sanitised for CSV/training.
+
+    A capture with fewer than 3 valid trace points legitimately produces
+    smoothness_score = inf (see calculate_smoothness()) - correct for the
+    rule detector, but literal inf written to the CSV fails
+    ml/train.py's own validation (and can't be fed to RandomForest
+    directly). This applies the same finite-sentinel substitution
+    feature_vector_to_array() already uses at inference time, so a row
+    written here is always safe to train on and matches what the model
+    will actually see - use this instead of FeatureVector.as_dict() when
+    building a CSV row.
+    """
+    array = feature_vector_to_array(features)
+    return dict(zip(FEATURE_NAMES, (float(v) for v in array)))
 
 
 def append_row(csv_path: Path, row: dict) -> None:

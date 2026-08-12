@@ -34,7 +34,7 @@ from config import (  # noqa: E402
 )
 from detect import detect_candidate  # noqa: E402
 from detection.ml_detector import run_ml_detection  # noqa: E402
-from features.dataset_io import append_row, prompt_for_label  # noqa: E402
+from features.dataset_io import append_row, feature_row_values, prompt_for_label  # noqa: E402
 from features.extractor import extract_features  # noqa: E402
 from load_data import load_input  # noqa: E402
 from spectrogram import iq_to_spectrogram, matrix_to_spectrogram, save_spectrogram_image  # noqa: E402
@@ -118,7 +118,7 @@ def run(args: argparse.Namespace) -> int:
     capture_id = f"{safe_stem(args.input)}_{timestamp.replace(':', '')}"
     row = {
         "capture_id": capture_id,
-        **features.as_dict(),
+        **feature_row_values(features),
         "label": label,
         "is_synthetic": 0,
         "source_file": str(args.input),

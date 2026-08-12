@@ -144,6 +144,56 @@ anyway. A capture that fails to load (corrupt/truncated file, wrong
 `--binary-dtype`) is logged and skipped - it never aborts the rest of the
 batch. Rows from this tool are always `is_synthetic=0`.
 
+### Windowed/chunked captures (sparse, low-duty-cycle signals)
+
+`label_capture.py` and `build_training_dataset.py` both label a whole
+file as one row. That's wrong for a capture where a real signal occupies
+only a small fraction of a much longer file - e.g. the "LoRadar"
+satellite-LoRa dataset: 4 MHz, complex64, only ~3% packet duty cycle per
+session. Averaging a few real packets
+across minutes of silence into one feature row washes the packets out
+into statistical noise. `scripts/chunk_bin_to_dataset.py` instead slices
+one large raw-IQ file into fixed-length, overlapping windows and scores
+each window individually with the same rule detector the rest of the
+pipeline uses:
+
+```bash
+python scripts/chunk_bin_to_dataset.py \
+    --input /path/to/session_001.bin \
+    --dataset data/training/features.csv \
+    --sample-rate 4000000 --center-freq 401300000 --binary-dtype complex64 \
+    --window-seconds 2.0 --stride-seconds 1.0 \
+    --snr-threshold-db 15 --min-valid-ratio 0.2 \
+    --save-candidate-images --output data/results/lora_review
+```
+
+Each window the rule detector rejects is auto-labelled 0 in bulk (tagged
+`auto-negative` in `notes`); each window it flags is a candidate you
+confirm interactively (or accept automatically with
+`--auto-accept-candidates`, tagged `auto-accepted candidate, not manually
+reviewed` so a weak label is never silently indistinguishable from a
+reviewed one). Windows are deduplicated by exact sample range, so
+re-running against the same file is safe.
+
+**Tune `--snr-threshold-db` and `--min-valid-ratio` before trusting the
+defaults on real data.** The pipeline's satellite-pass defaults
+(`--snr-threshold-db 6`, `--min-valid-ratio 0.45`) were validated against
+a signal spanning nearly an entire capture, not a short burst inside a
+much longer window. Verified empirically on a synthetic burst-in-noise
+window: at the default 6 dB threshold and ~1000 frequency bins, pure
+noise alone crosses the strongest-bin-vs-median-power check on almost
+every time slice (extreme-value statistics over that many bins), so
+`valid_signal_ratio` saturates near 1.0 for noise and real signal alike -
+useless as a discriminator - and a real burst's clean trace gets diluted
+by the noise-dominated rest of the window, failing `max_smoothness_hz`
+too. Raising `--snr-threshold-db` to ~15 dB fixed the false-"valid" rate
+under noise in that test, and lowering `--min-valid-ratio` to ~0.2
+correctly let a burst occupying under a third of the window still
+register. Treat those as a validated *starting point*, not a tuned
+result on your actual captures - confirm against a couple of
+known/expected-positive windows (`--save-candidate-images` helps here)
+before running `--auto-accept-candidates` across a whole file.
+
 ## Known Limitation: `signal_duration_seconds` / `drift_rate_hz_per_second`
 
 These two features are only in real seconds when the underlying capture
