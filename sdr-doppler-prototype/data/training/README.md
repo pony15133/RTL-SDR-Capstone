@@ -110,20 +110,35 @@ supports three ways to supply it, checked in this order per file:
    ```
 
 2. **Folder-name convention** - no manifest needed if your captures are
-   already sorted into subfolders named `1`/`positive`/`pos`/`candidate`
-   and `0`/`negative`/`neg`/`noise`:
+   already sorted into subfolders named for their class. The built-in
+   convention (`DEFAULT_CLASS_MAP` in the script) maps
+   `1`/`positive`/`pos`/`candidate`/`satellite` -> `1` and
+   `0`/`negative`/`neg`/`noise` -> `0`:
 
    ```
-   captures/
-     positive/pass_001.bin
-     positive/pass_002.bin
-     negative/noise_001.bin
+   training_data/
+     satellite/pass_001.bin
+     satellite/pass_002.bin
+     noise/noise_001.bin
    ```
 
    ```bash
-   python scripts/build_training_dataset.py --input-dir captures --recursive \
+   python scripts/build_training_dataset.py --input-dir training_data --recursive \
        --dataset data/training/features.csv --sample-rate 2400000 --center-freq 137900000
    ```
+
+   To use different class-folder names (or add more than two classes'
+   worth of folders) without editing the script, pass `--class-map`:
+
+   ```bash
+   python scripts/build_training_dataset.py --input-dir captures --recursive \
+       --class-map "interference=0,unknown_sat=1" \
+       --dataset data/training/features.csv --sample-rate 2400000 --center-freq 137900000
+   ```
+
+   `--class-map` entries are merged onto (not a replacement for) the
+   built-in convention, so you only need to name the classes you're
+   adding or overriding.
 
 3. **A single `--label`** applied to every file in the run - useful when
    an entire folder is confirmed one way (e.g. a folder of known
@@ -142,7 +157,23 @@ skipped automatically on a re-run, so it's safe to point this at a
 growing folder repeatedly; pass `--reprocess` to force re-adding them
 anyway. A capture that fails to load (corrupt/truncated file, wrong
 `--binary-dtype`) is logged and skipped - it never aborts the rest of the
-batch. Rows from this tool are always `is_synthetic=0`.
+batch. Rows from this tool are always `is_synthetic=0`. One recording
+always produces exactly one row - see "Windowed/chunked captures" below
+if that's the wrong granularity for your data.
+
+If `--dataset` already exists with an incompatible header (e.g. it was
+written under an older feature schema), the run fails immediately with a
+clear error instead of appending misaligned columns - point `--dataset`
+at a new file, or migrate the old one by hand first.
+
+At the end of a run it prints how many files were processed/succeeded/
+failed, the class distribution of the rows it just added (by label, and
+by source folder when the folder-name convention was used), and warns if
+the resulting dataset ends up with only one class or with one class
+outnumbering the other by 3x or more (`IMBALANCE_WARNING_RATIO` in the
+script) - useful before handing the CSV to `train_model.py`, which will
+otherwise train on whatever it's given without complaint (beyond its own
+`--class-weight balanced` option).
 
 ### Windowed/chunked captures (sparse, low-duty-cycle signals)
 

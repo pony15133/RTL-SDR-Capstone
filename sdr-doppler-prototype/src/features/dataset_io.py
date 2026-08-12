@@ -37,11 +37,33 @@ def feature_row_values(features: FeatureVector) -> dict:
     return dict(zip(FEATURE_NAMES, (float(v) for v in array)))
 
 
+class DatasetSchemaError(ValueError):
+    """An existing training CSV's header doesn't match the current CSV_COLUMNS schema."""
+
+
 def append_row(csv_path: Path, row: dict) -> None:
-    """Append one row to the training CSV, writing the header first if needed."""
+    """Append one row to the training CSV, writing the header first if needed.
+
+    If the file already exists with content, its header must exactly match
+    CSV_COLUMNS - appending a row with today's schema onto a file written
+    under an older/different one would silently produce a CSV with
+    misaligned columns that train_model.py would misread. Raises
+    DatasetSchemaError instead, so a schema drift is caught immediately
+    rather than corrupting the dataset.
+    """
     csv_path = Path(csv_path)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     file_has_content = csv_path.exists() and csv_path.stat().st_size > 0
+    if file_has_content:
+        with csv_path.open("r", newline="", encoding="utf-8") as handle:
+            existing_header = next(csv.reader(handle), [])
+        if existing_header != CSV_COLUMNS:
+            raise DatasetSchemaError(
+                f"{csv_path} has header {existing_header!r}, which does not match the "
+                f"current schema {CSV_COLUMNS!r}. This usually means the file was created "
+                "with an older feature schema or a different row layout - append to a new "
+                "--dataset path, or migrate the existing file by hand before continuing."
+            )
     with csv_path.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS)
         if not file_has_content:

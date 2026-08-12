@@ -29,7 +29,8 @@ def _load_script_module():
 
 btd = _load_script_module()
 
-from features.dataset_io import existing_source_files  # noqa: E402
+from features.dataset_io import CSV_COLUMNS, existing_source_files  # noqa: E402
+from features.extractor import FEATURE_NAMES, SMOOTHNESS_INF_SENTINEL_HZ  # noqa: E402
 
 
 def _write_chirp_bin(path: Path, samples: int = 4096, seed: int = 1) -> None:
@@ -48,6 +49,27 @@ def _write_noise_bin(path: Path, samples: int = 4096, seed: int = 2) -> None:
     rng = np.random.default_rng(seed)
     noise = (0.2 * (rng.normal(size=samples) + 1j * rng.normal(size=samples))).astype(np.complex64)
     noise.tofile(path)
+
+
+def _chirp_iq(samples: int = 4096, seed: int = 1) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    t = np.arange(samples) / 240_000.0
+    rate = (30_000.0 - (-30_000.0)) / t[-1]
+    phase = 2 * np.pi * (-30_000.0 * t + 0.5 * rate * t * t)
+    noise = 0.1 * (rng.normal(size=samples) + 1j * rng.normal(size=samples))
+    return (np.exp(1j * phase) + noise).astype(np.complex64)
+
+
+def _write_chirp_npy(path: Path, samples: int = 4096, seed: int = 1) -> None:
+    """A synthetic drifting-tone raw-IQ .npy fixture (1D complex64), positive-shaped."""
+    np.save(path, _chirp_iq(samples, seed))
+
+
+def _write_noise_npy(path: Path, samples: int = 4096, seed: int = 2) -> None:
+    """A synthetic pure-noise raw-IQ .npy fixture (1D complex64), negative-shaped."""
+    rng = np.random.default_rng(seed)
+    noise = (0.2 * (rng.normal(size=samples) + 1j * rng.normal(size=samples))).astype(np.complex64)
+    np.save(path, noise)
 
 
 def _base_args(tmp_path, input_dir, dataset, **overrides):
@@ -285,3 +307,303 @@ class TestRunEndToEnd:
     def test_missing_input_dir_fails_cleanly(self, tmp_path):
         args = _base_args(tmp_path, tmp_path / "does_not_exist", tmp_path / "features.csv", label=1)
         assert btd.run(args) == 1
+
+
+class TestParseClassMap:
+    def test_default_includes_satellite_and_noise(self):
+        class_map = btd.parse_class_map(None)
+        assert class_map["satellite"] == 1
+        assert class_map["noise"] == 0
+
+    def test_empty_string_returns_defaults(self):
+        assert btd.parse_class_map("") == btd.DEFAULT_CLASS_MAP
+
+    def test_override_existing_entry(self):
+        class_map = btd.parse_class_map("noise=1")
+        assert class_map["noise"] == 1
+        assert class_map["satellite"] == 1  # unrelated defaults untouched
+
+    def test_add_new_entry(self):
+        class_map = btd.parse_class_map("interference=0,unknown_sat=1")
+        assert class_map["interference"] == 0
+        assert class_map["unknown_sat"] == 1
+        assert class_map["satellite"] == 1  # defaults still present
+
+    def test_is_case_insensitive_on_folder_name(self):
+        class_map = btd.parse_class_map("Interference=0")
+        assert class_map["interference"] == 0
+
+    def test_missing_equals_sign_raises(self):
+        with pytest.raises(SystemExit):
+            btd.parse_class_map("not_valid")
+
+    def test_out_of_range_label_raises(self):
+        with pytest.raises(SystemExit):
+            btd.parse_class_map("foo=2")
+
+    def test_non_integer_label_raises(self):
+        with pytest.raises(SystemExit):
+            btd.parse_class_map("foo=maybe")
+
+
+class TestResolveLabelWithSource:
+    def test_satellite_folder_resolves_to_one(self, tmp_path):
+        path = tmp_path / "satellite" / "meteor_m2_4_001.npy"
+        path.parent.mkdir()
+        path.touch()
+        label, source = btd.resolve_label_with_source(path, tmp_path, {}, forced_label=None)
+        assert (label, source) == (1, "folder:satellite")
+
+    def test_noise_folder_resolves_to_zero(self, tmp_path):
+        path = tmp_path / "noise" / "empty_001.npy"
+        path.parent.mkdir()
+        path.touch()
+        label, source = btd.resolve_label_with_source(path, tmp_path, {}, forced_label=None)
+        assert (label, source) == (0, "folder:noise")
+
+    def test_manifest_source_tag(self, tmp_path):
+        path = tmp_path / "a.bin"
+        path.touch()
+        label, source = btd.resolve_label_with_source(path, tmp_path, {"a.bin": 1}, forced_label=None)
+        assert (label, source) == (1, "manifest")
+
+    def test_forced_label_source_tag(self, tmp_path):
+        path = tmp_path / "unlabelled" / "a.bin"
+        path.parent.mkdir()
+        path.touch()
+        label, source = btd.resolve_label_with_source(path, tmp_path, {}, forced_label=1)
+        assert (label, source) == (1, "forced")
+
+    def test_unresolved_returns_none_source(self, tmp_path):
+        path = tmp_path / "unlabelled" / "a.bin"
+        path.parent.mkdir()
+        path.touch()
+        label, source = btd.resolve_label_with_source(path, tmp_path, {}, forced_label=None)
+        assert (label, source) == (None, None)
+
+    def test_custom_class_map_extends_default(self, tmp_path):
+        path = tmp_path / "interference" / "a.bin"
+        path.parent.mkdir()
+        path.touch()
+        class_map = btd.parse_class_map("interference=0")
+        label, source = btd.resolve_label_with_source(path, tmp_path, {}, forced_label=None, class_map=class_map)
+        assert (label, source) == (0, "folder:interference")
+
+
+class TestSchemaMatchesTrainingPipeline:
+    """CSV column set/order must exactly match features.dataset_io.CSV_COLUMNS
+    (which is itself built from FEATURE_NAMES) - the schema
+    src/ml/train.py's REQUIRED_COLUMNS and split_features_labels() expect.
+    """
+
+    def test_header_matches_csv_columns_exactly(self, tmp_path):
+        input_dir = tmp_path / "captures"
+        input_dir.mkdir()
+        _write_chirp_bin(input_dir / "p1.bin")
+        dataset = tmp_path / "features.csv"
+
+        args = _base_args(tmp_path, input_dir, dataset, label=1)
+        btd.run(args)
+
+        with dataset.open(newline="") as handle:
+            header = next(csv.reader(handle))
+        assert header == CSV_COLUMNS
+
+    def test_every_feature_name_is_a_column(self, tmp_path):
+        input_dir = tmp_path / "captures"
+        input_dir.mkdir()
+        _write_chirp_bin(input_dir / "p1.bin")
+        dataset = tmp_path / "features.csv"
+
+        args = _base_args(tmp_path, input_dir, dataset, label=1)
+        btd.run(args)
+
+        with dataset.open(newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        assert len(rows) == 1
+        for name in FEATURE_NAMES:
+            assert name in rows[0]
+            float(rows[0][name])  # every feature value must parse as a finite number
+            assert np.isfinite(float(rows[0][name]))
+
+    def test_label_column_present_and_binary(self, tmp_path):
+        input_dir = tmp_path / "captures"
+        input_dir.mkdir()
+        _write_chirp_bin(input_dir / "p1.bin")
+        _write_noise_bin(input_dir / "n1.bin")
+        dataset = tmp_path / "features.csv"
+
+        args = _base_args(tmp_path, input_dir, dataset, label=1)
+        btd.run(args)
+        args2 = _base_args(tmp_path, input_dir, dataset, label=0, reprocess=True)
+        btd.run(args2)
+
+        with dataset.open(newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        assert all(row["label"] in ("0", "1") for row in rows)
+
+
+class TestNpyRawIq:
+    """The dataset builder must handle raw-IQ .npy the same way it handles .bin -
+    both go through load_input() -> iq_to_spectrogram() -> extract_features()."""
+
+    def test_npy_satellite_noise_folders_out_of_the_box(self, tmp_path):
+        """The exact directory layout from the project's dataset-building workflow:
+        training_data/satellite/*.npy -> label 1, training_data/noise/*.npy -> label 0,
+        resolved purely from folder names with zero extra CLI flags."""
+        input_dir = tmp_path / "training_data"
+        (input_dir / "satellite").mkdir(parents=True)
+        (input_dir / "noise").mkdir(parents=True)
+        _write_chirp_npy(input_dir / "satellite" / "meteor_m2_4_001.npy")
+        _write_noise_npy(input_dir / "noise" / "empty_001.npy")
+        dataset = tmp_path / "features.csv"
+
+        args = _base_args(tmp_path, input_dir, dataset, recursive=True, skip_unlabeled=True)
+        exit_code = btd.run(args)
+
+        assert exit_code == 0
+        with dataset.open(newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        labels = {Path(row["source_file"]).name: row["label"] for row in rows}
+        assert labels == {"meteor_m2_4_001.npy": "1", "empty_001.npy": "0"}
+
+
+class TestSummaryOutput:
+    def test_prints_processed_successful_failed_and_output(self, tmp_path, capsys):
+        input_dir = tmp_path / "captures"
+        input_dir.mkdir()
+        _write_chirp_bin(input_dir / "p1.bin")
+        dataset = tmp_path / "features.csv"
+
+        args = _base_args(tmp_path, input_dir, dataset, label=1)
+        btd.run(args)
+
+        out = capsys.readouterr().out
+        assert "Processed: 1" in out
+        assert "Successful: 1" in out
+        assert "Failed: 0" in out
+        assert f"Output: {dataset}" in out
+
+    def test_prints_class_distribution_by_label_and_folder(self, tmp_path, capsys):
+        input_dir = tmp_path / "training_data"
+        (input_dir / "satellite").mkdir(parents=True)
+        (input_dir / "noise").mkdir(parents=True)
+        _write_chirp_bin(input_dir / "satellite" / "p1.bin")
+        _write_noise_bin(input_dir / "noise" / "n1.bin")
+        dataset = tmp_path / "features.csv"
+
+        args = _base_args(tmp_path, input_dir, dataset, recursive=True, skip_unlabeled=True)
+        btd.run(args)
+
+        out = capsys.readouterr().out
+        assert "Class distribution (this run, by label):" in out
+        assert "Class distribution (this run, by source folder):" in out
+        assert "satellite: 1" in out
+        assert "noise: 1" in out
+
+    def test_warns_when_only_one_class_present(self, tmp_path, capsys):
+        input_dir = tmp_path / "captures"
+        input_dir.mkdir()
+        _write_chirp_bin(input_dir / "p1.bin")
+        _write_chirp_bin(input_dir / "p2.bin", seed=3)
+        dataset = tmp_path / "features.csv"
+
+        args = _base_args(tmp_path, input_dir, dataset, label=1)
+        btd.run(args)
+
+        out = capsys.readouterr().out
+        assert "WARNING" in out
+        assert "only one class" in out
+
+    def test_warns_when_dataset_is_imbalanced(self, tmp_path, capsys):
+        input_dir = tmp_path / "training_data"
+        (input_dir / "satellite").mkdir(parents=True)
+        (input_dir / "noise").mkdir(parents=True)
+        _write_chirp_bin(input_dir / "satellite" / "p1.bin", seed=1)
+        for i in range(4):
+            _write_noise_bin(input_dir / "noise" / f"n{i}.bin", seed=100 + i)
+        dataset = tmp_path / "features.csv"
+
+        args = _base_args(tmp_path, input_dir, dataset, recursive=True, skip_unlabeled=True)
+        btd.run(args)
+
+        out = capsys.readouterr().out
+        assert "WARNING" in out
+        assert "imbalanced" in out
+
+    def test_no_imbalance_warning_when_classes_are_balanced(self, tmp_path, capsys):
+        input_dir = tmp_path / "training_data"
+        (input_dir / "satellite").mkdir(parents=True)
+        (input_dir / "noise").mkdir(parents=True)
+        _write_chirp_bin(input_dir / "satellite" / "p1.bin")
+        _write_noise_bin(input_dir / "noise" / "n1.bin")
+        dataset = tmp_path / "features.csv"
+
+        args = _base_args(tmp_path, input_dir, dataset, recursive=True, skip_unlabeled=True)
+        btd.run(args)
+
+        out = capsys.readouterr().out
+        assert "imbalanced" not in out
+
+
+class TestDatasetSchemaMismatchAborts:
+    def test_incompatible_existing_header_fails_cleanly_without_crashing(self, tmp_path, capsys):
+        input_dir = tmp_path / "captures"
+        input_dir.mkdir()
+        _write_chirp_bin(input_dir / "p1.bin")
+        dataset = tmp_path / "features.csv"
+        dataset.write_text("capture_id,some_old_column,label\ncap0,1.0,1\n")  # old/incompatible schema
+
+        args = _base_args(tmp_path, input_dir, dataset, label=1)
+        exit_code = btd.run(args)
+
+        assert exit_code == 1
+        err = capsys.readouterr().err
+        assert "FAILED" in err
+        # the pre-existing row must not have been touched/duplicated
+        assert dataset.read_text().count("cap0") == 1
+
+
+class TestNonFiniteFeatureHandling:
+    """A FeatureVector with an infinite smoothness_score (legitimate when a
+    capture has fewer than 3 valid trace points, see calculate_smoothness())
+    must be written to the CSV the same sanitised way feature_vector_to_array()
+    already handles it everywhere else in the pipeline - never a literal
+    'inf' that pandas/sklearn can't consume.
+    """
+
+    def test_infinite_smoothness_is_written_as_finite_sentinel(self, tmp_path, monkeypatch):
+        from features.extractor import FeatureVector
+
+        def fake_extract_features(spec, snr_threshold_db, time_axis_is_synthetic=False):
+            return FeatureVector(
+                snr_db=5.0,
+                frequency_drift_hz=100.0,
+                drift_rate_hz_per_second=10.0,
+                smoothness_score=float("inf"),
+                valid_signal_ratio=0.5,
+                peak_power=-40.0,
+                mean_power=-60.0,
+                occupied_bandwidth_hz=500.0,
+                signal_duration_seconds=1.0,
+                strongest_trace_hz=np.array([]),
+                smoothed_trace_hz=np.array([]),
+                valid_mask=np.array([], dtype=bool),
+                time_axis_is_synthetic=time_axis_is_synthetic,
+            )
+
+        monkeypatch.setattr(btd, "extract_features", fake_extract_features)
+
+        input_dir = tmp_path / "captures"
+        input_dir.mkdir()
+        _write_chirp_bin(input_dir / "p1.bin")
+        dataset = tmp_path / "features.csv"
+
+        args = _base_args(tmp_path, input_dir, dataset, label=1)
+        exit_code = btd.run(args)
+
+        assert exit_code == 0
+        with dataset.open(newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        assert rows[0]["smoothness_score"] == str(SMOOTHNESS_INF_SENTINEL_HZ)
+        assert np.isfinite(float(rows[0]["smoothness_score"]))

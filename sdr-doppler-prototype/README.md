@@ -169,15 +169,83 @@ python scripts/label_capture.py --input <capture> --dataset data/training/featur
 
 Runs the pipeline on a real capture, shows both detectors' opinions and the extracted features, and appends your label to the dataset (always `is_synthetic=0`). See `data/training/README.md` for the full collection workflow (recording real passes vs. negative examples, minimum dataset size guidance, etc.).
 
-For a whole folder of raw captures at once (instead of one file per command), use `scripts/build_training_dataset.py` - it labels each file from a manifest CSV, a `positive`/`negative` folder convention, or a single `--label` for the whole folder, then appends all of them to the same training CSV:
+### Building a Training Dataset from Raw IQ Recordings
 
-```bash
-python scripts/build_training_dataset.py --input-dir /path/to/captures --recursive \
-  --labels-csv data/training/my_labels.csv --dataset data/training/features.csv \
-  --sample-rate 2400000 --center-freq 137900000 --binary-dtype complex64
+For a whole folder of raw captures at once (instead of one file per command), use `scripts/build_training_dataset.py`. It walks a directory of labelled `.bin`/`.iq`/`.dat`/`.npy` recordings and, for each one, runs the exact same pipeline as everywhere else in the project - `load_data.load_input()` -> `spectrogram.iq_to_spectrogram()` -> `features.extractor.extract_features()` -> `feature_row_values()` (the shared, order-safe `FEATURE_NAMES` conversion) - then appends one labelled row to the training CSV. Training and inference always compute features with this same code, so a model can never see numbers that were derived differently at training time vs. prediction time.
+
+```text
+RAW IQ                         RAW IQ
+   |                              |
+Spectrogram                  Spectrogram
+   |                              |
+Shared Feature Extraction    SAME Shared Feature Extraction
+   |                              |
+Training CSV                 Saved Random Forest
+   |                              |
+Random Forest Training       Prediction / probability
+   |
+Saved Model
 ```
 
-Training itself is unchanged either way - both tools write the same CSV schema, so `train_model.py --dataset data/training/features.csv --output models/random_forest.joblib` works regardless of how the CSV was built. See `data/training/README.md` for the three label-source modes in detail.
+**Directory structure.** Point `--input-dir` at a folder of subfolders named for their class, e.g.:
+
+```text
+training_data/
+    satellite/
+        meteor_m2_4_001.npy
+        meteor_m2_4_002.bin
+        noaa_19_001.npy
+    noise/
+        empty_001.npy
+        interference_001.bin
+        terrestrial_signal_001.npy
+```
+
+**Supported file formats:** `.bin`/`.iq`/`.dat` (raw binary IQ, dtype set by `--binary-dtype`, default `complex64`) and `.npy` (1D/complex = raw IQ, 2D = an already-computed spectrogram matrix - `load_input()` inspects the array itself rather than assuming every `.npy` is raw IQ). Each recording produces **one** CSV row; a raw file is not silently split into several. If a capture's real signal only occupies a small fraction of a much longer recording, use `scripts/chunk_bin_to_dataset.py` instead (see below) - that is an explicit, separate tool, not something this script does automatically.
+
+**Labelling.** The folder name is the label source by default - `satellite`/`1`/`positive`/`pos`/`candidate` -> `1`, `noise`/`0`/`negative`/`neg` -> `0` (see `DEFAULT_CLASS_MAP` in the script). This isn't hard-wired for a fixed set of class names: pass `--class-map "interference=0,unknown_sat=1"` to add or override folder-name -> label mappings without touching the code, or use `--labels-csv`/`--label` for manifest- or whole-folder-based labelling instead (see `data/training/README.md` for all label-source modes).
+
+**Required metadata.** `--sample-rate`, `--center-freq`, `--nperseg`, `--noverlap`, and `--snr-threshold-db` all default to the same project-wide values `src/config.py` and `src/main.py` use, but real recordings usually need their true sample rate/centre frequency passed explicitly - the recorder does not currently embed this metadata in the `.npy`/`.bin` file itself, so **this script will not guess it**. If your recordings vary in sample rate or centre frequency, either process each subfolder in a separate run with the matching flags, or convert captures to SigMF first (`scripts/convert_sigmf_to_iq.py`) and record the parameters per capture some other way (e.g. per-folder or in a notes column).
+
+Example command:
+
+```bash
+python scripts/build_training_dataset.py \
+    --input-dir training_data --recursive \
+    --dataset data/training/features.csv \
+    --sample-rate 2400000 --center-freq 137900000 --binary-dtype complex64
+```
+
+**Output.** A CSV at `--dataset` with columns `capture_id`, the nine `FEATURE_NAMES` columns (`snr_db`, `frequency_drift_hz`, `drift_rate_hz_per_second`, `smoothness_score`, `valid_signal_ratio`, `peak_power`, `mean_power`, `occupied_bandwidth_hz`, `signal_duration_seconds`), `label`, and provenance columns (`is_synthetic`, `source_file`, `sample_rate_hz`, `nperseg`, `noverlap`, `notes`) - this is exactly `train_model.py`'s expected schema, not a second incompatible format. A file that fails to load or process (corrupt/truncated capture, wrong `--binary-dtype`, ...) is reported and skipped, never aborting the rest of the batch; if an existing `--dataset` file has an incompatible header (an older schema), the run fails cleanly with a clear error instead of writing misaligned rows. When finished, it prints:
+
+```text
+Processed: 6
+Successful: 6
+Failed: 0
+
+Class distribution (this run, by label):
+  0: 3
+  1: 3
+
+Class distribution (this run, by source folder):
+  noise: 3
+  satellite: 3
+
+Output: data/training/features.csv
+Train with: python train_model.py --dataset data/training/features.csv --output models/random_forest.joblib
+```
+
+...plus a `WARNING` if the resulting dataset ends up with only one class, or one class outnumbering the other by 3x or more.
+
+Then train exactly as before:
+
+```bash
+python train_model.py --dataset data/training/features.csv --output models/random_forest.joblib
+```
+
+The CSV stores **extracted numerical features only** - the Random Forest never trains directly on raw IQ samples; `train_model.py` reads the CSV, not the recordings.
+
+Training itself is unchanged either way - `label_capture.py` and `build_training_dataset.py` write the same CSV schema, so `train_model.py --dataset data/training/features.csv --output models/random_forest.joblib` works regardless of how the CSV was built. See `data/training/README.md` for the full label-source and schema documentation.
 
 ## Database
 
@@ -210,3 +278,4 @@ An existing database created before the ML component is migrated automatically a
 - `signal_duration_seconds` and `drift_rate_hz_per_second` are only in real seconds for raw-IQ input; a bare spectrogram-matrix input (`.txt`/`.csv`) has no real time axis, and `FeatureVector.time_axis_is_synthetic` flags this.
 - Cross-validation and train/test splitting are statistically unreliable on very small datasets; `src/ml/train.py` degrades gracefully (skips/falls back with a stated reason) rather than reporting misleadingly precise numbers.
 - Only a binary label (satellite candidate / not) is supported - no per-satellite classification yet.
+- `frequency_drift_hz`/`drift_rate_hz_per_second` are magnitude-only (`abs(end - start)`); direction (upward vs. downward chirp) isn't captured in the current feature schema. Signed variants (`signed_frequency_drift_hz`, `signed_drift_rate_hz_per_second`) were deliberately **not** added alongside the dataset-building work in this change - doing so cleanly would mean extending `FeatureVector`/`FEATURE_NAMES` (touching the rule detector, the ML feature schema, `dataset_io.CSV_COLUMNS`, and every existing test that enumerates features) as a second, separable change, not a quick addition to a dataset-generation script. Left as a follow-up.

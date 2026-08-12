@@ -4,9 +4,17 @@ import csv
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from features.dataset_io import CSV_COLUMNS, append_row, existing_source_files, prompt_for_label  # noqa: E402
+from features.dataset_io import (  # noqa: E402
+    CSV_COLUMNS,
+    DatasetSchemaError,
+    append_row,
+    existing_source_files,
+    prompt_for_label,
+)
 
 
 def _row(capture_id="cap1", source_file="a.bin", label=1):
@@ -45,6 +53,25 @@ class TestAppendRow:
         assert rows[0]["capture_id"] == "cap42"
         assert rows[0]["source_file"] == "x.bin"
         assert rows[0]["label"] == "1"
+
+    def test_incompatible_existing_header_raises(self, tmp_path):
+        csv_path = tmp_path / "dataset.csv"
+        csv_path.write_text("capture_id,some_old_column,label\ncap0,1.0,1\n")
+
+        with pytest.raises(DatasetSchemaError):
+            append_row(csv_path, _row("cap1"))
+
+        # the incompatible file must be left untouched, not partially written
+        assert csv_path.read_text() == "capture_id,some_old_column,label\ncap0,1.0,1\n"
+
+    def test_matching_header_on_existing_file_appends_normally(self, tmp_path):
+        csv_path = tmp_path / "dataset.csv"
+        append_row(csv_path, _row("cap1"))
+        append_row(csv_path, _row("cap2"))  # same schema - must not raise
+
+        with csv_path.open(newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        assert len(rows) == 2
 
 
 class TestExistingSourceFiles:
