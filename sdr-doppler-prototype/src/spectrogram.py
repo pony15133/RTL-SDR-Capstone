@@ -56,6 +56,54 @@ def matrix_to_spectrogram(
     return SpectrogramData(power_db=power_db, frequencies_hz=frequencies_hz, times_s=times_s)
 
 
+def save_chunked_spectrogram_images(
+    spec: SpectrogramData,
+    output_dir: Path,
+    *,
+    chunk_size: int,
+    overlap: int = 0,
+    prefix: str = "spectrogram",
+) -> list[Path]:
+    """Render a spectrogram in time chunks to stay memory-safe on large captures.
+
+    Each chunk is written as a separate PNG with a numbered suffix.
+    """
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be positive, got {chunk_size!r}")
+    if overlap < 0:
+        raise ValueError(f"overlap must be non-negative, got {overlap!r}")
+    if overlap >= chunk_size:
+        raise ValueError(f"overlap must be smaller than chunk_size ({chunk_size}), got {overlap!r}")
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    total_rows = len(spec.times_s)
+    if total_rows <= chunk_size:
+        out_path = output_dir / f"{prefix}_chunk_000.png"
+        save_spectrogram_image(spec, out_path)
+        return [out_path]
+
+    chunk_paths: list[Path] = []
+    start = 0
+    chunk_index = 0
+    while start < total_rows:
+        end = min(total_rows, start + chunk_size)
+        chunk_spec = SpectrogramData(
+            power_db=spec.power_db[start:end, :],
+            frequencies_hz=spec.frequencies_hz,
+            times_s=spec.times_s[start:end],
+        )
+        out_path = output_dir / f"{prefix}_chunk_{chunk_index:03d}.png"
+        save_spectrogram_image(chunk_spec, out_path)
+        chunk_paths.append(out_path)
+        if end >= total_rows:
+            break
+        start = max(start + 1, end - overlap)
+        chunk_index += 1
+
+    return chunk_paths
+
+
 def save_spectrogram_image(spec: SpectrogramData, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.figure(figsize=(10, 5))
