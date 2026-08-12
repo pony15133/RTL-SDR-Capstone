@@ -21,6 +21,7 @@ from ml.train import (  # noqa: E402
     DatasetValidationError,
     build_arg_parser,
     check_synthetic_guard,
+    grouped_train_test_split,
     load_dataset,
     run_training,
     validate_dataset,
@@ -217,6 +218,27 @@ class TestRunTrainingEndToEnd:
 
         assert result1.metrics["accuracy"] == result2.metrics["accuracy"]
         assert result1.label_distribution == result2.label_distribution
+
+    def test_grouped_split_keeps_same_recordings_together(self):
+        df = pd.DataFrame(
+            [
+                {"recording_id": "r1", "capture_id": "c1", "snr_db": 11.0, "frequency_drift_hz": 1200.0, "drift_rate_hz_per_second": 40.0, "smoothness_score": 150.0, "valid_signal_ratio": 0.8, "peak_power": 8.0, "mean_power": -60.0, "occupied_bandwidth_hz": 2200.0, "signal_duration_seconds": 30.0, "label": 1, "is_synthetic": 1},
+                {"recording_id": "r1", "capture_id": "c2", "snr_db": 10.5, "frequency_drift_hz": 1180.0, "drift_rate_hz_per_second": 39.0, "smoothness_score": 170.0, "valid_signal_ratio": 0.75, "peak_power": 7.5, "mean_power": -61.0, "occupied_bandwidth_hz": 2100.0, "signal_duration_seconds": 29.0, "label": 1, "is_synthetic": 1},
+                {"recording_id": "r2", "capture_id": "c3", "snr_db": 1.5, "frequency_drift_hz": 250.0, "drift_rate_hz_per_second": 10.0, "smoothness_score": 7800.0, "valid_signal_ratio": 0.15, "peak_power": 1.5, "mean_power": -75.0, "occupied_bandwidth_hz": 500.0, "signal_duration_seconds": 25.0, "label": 0, "is_synthetic": 1},
+                {"recording_id": "r2", "capture_id": "c4", "snr_db": 1.2, "frequency_drift_hz": 260.0, "drift_rate_hz_per_second": 11.0, "smoothness_score": 7600.0, "valid_signal_ratio": 0.1, "peak_power": 1.1, "mean_power": -76.0, "occupied_bandwidth_hz": 480.0, "signal_duration_seconds": 24.0, "label": 0, "is_synthetic": 1},
+                {"recording_id": "r3", "capture_id": "c5", "snr_db": 12.5, "frequency_drift_hz": 1350.0, "drift_rate_hz_per_second": 48.0, "smoothness_score": 160.0, "valid_signal_ratio": 0.85, "peak_power": 9.1, "mean_power": -58.0, "occupied_bandwidth_hz": 2600.0, "signal_duration_seconds": 28.0, "label": 1, "is_synthetic": 1},
+                {"recording_id": "r3", "capture_id": "c6", "snr_db": 11.8, "frequency_drift_hz": 1280.0, "drift_rate_hz_per_second": 44.0, "smoothness_score": 170.0, "valid_signal_ratio": 0.8, "peak_power": 8.9, "mean_power": -59.0, "occupied_bandwidth_hz": 2500.0, "signal_duration_seconds": 29.0, "label": 1, "is_synthetic": 1},
+                {"recording_id": "r4", "capture_id": "c7", "snr_db": 1.9, "frequency_drift_hz": 200.0, "drift_rate_hz_per_second": 8.0, "smoothness_score": 8300.0, "valid_signal_ratio": 0.12, "peak_power": 1.9, "mean_power": -74.0, "occupied_bandwidth_hz": 590.0, "signal_duration_seconds": 25.0, "label": 0, "is_synthetic": 1},
+                {"recording_id": "r4", "capture_id": "c8", "snr_db": 1.7, "frequency_drift_hz": 210.0, "drift_rate_hz_per_second": 9.0, "smoothness_score": 8100.0, "valid_signal_ratio": 0.11, "peak_power": 1.7, "mean_power": -73.5, "occupied_bandwidth_hz": 620.0, "signal_duration_seconds": 24.5, "label": 0, "is_synthetic": 1},
+            ]
+        )
+
+        train_idx, test_idx = grouped_train_test_split(df, test_size=0.5, random_state=42)
+        train_recordings = set(df.loc[train_idx, "recording_id"])
+        test_recordings = set(df.loc[test_idx, "recording_id"])
+
+        assert train_recordings.isdisjoint(test_recordings)
+        assert len(train_recordings | test_recordings) == len(df["recording_id"].unique())
 
     def test_training_refused_without_allow_synthetic_flag(self, tmp_path):
         df = _make_synthetic_dataframe(n_per_class=10)

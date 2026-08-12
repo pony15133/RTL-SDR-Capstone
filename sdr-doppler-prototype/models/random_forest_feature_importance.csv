@@ -1,0 +1,10 @@
+feature,importance
+snr_db,0.18
+frequency_drift_hz,0.16
+occupied_bandwidth_hz,0.13
+smoothness_score,0.11
+drift_rate_hz_per_second,0.1
+peak_power,0.09
+signal_duration_seconds,0.09
+valid_signal_ratio,0.07
+mean_power,0.07

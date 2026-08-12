@@ -1,0 +1,14 @@
+{
+  "input_file": "C:\\Users\\user\\Desktop\\RTL-SDR-Bitbucket\\rtl-sdr-capstone\\sdr-doppler-prototype\\data\\raw\\lora_process_energy_2.bin",
+  "timestamp_utc": "2026-08-12T05:49:48+00:00",
+  "rule_detection_result": true,
+  "rule_confidence_score": 0.9473091931093545,
+  "valid_signal_ratio": 1.0,
+  "frequency_drift_hz": 55312.5,
+  "smoothness_score": 1264.579365375493,
+  "notes": "candidate satellite Doppler-like drift",
+  "ml_status": "AVAILABLE",
+  "ml_detection_result": true,
+  "ml_confidence_score": 0.84,
+  "model_version": "random_forest_20260812T054836Z"
+}
