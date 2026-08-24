@@ -98,8 +98,19 @@ def parse_extensions(raw: str) -> set:
     return {ext.strip() if ext.strip().startswith(".") else f".{ext.strip()}" for ext in raw.split(",") if ext.strip()}
 
 
+def _normalize_relpath_key(value: str) -> str:
+    """Canonical form for a manifest/relative-path lookup key: forward slashes,
+    regardless of whether it came from a Windows path (str(WindowsPath(...))
+    uses backslashes) or a manifest CSV written with either separator."""
+    return value.replace("\\", "/")
+
+
 def load_labels_manifest(path: Optional[Path]) -> Dict[str, int]:
-    """Load a {filename_or_relpath: 0/1} map from a manifest CSV."""
+    """Load a {filename_or_relpath: 0/1} map from a manifest CSV.
+
+    Keys are normalised to forward-slash form so a manifest written with
+    either `/` or `\\` matches a path resolved on either OS.
+    """
     if path is None:
         return {}
     with Path(path).open("r", newline="", encoding="utf-8") as handle:
@@ -115,14 +126,22 @@ def load_labels_manifest(path: Optional[Path]) -> Dict[str, int]:
                 raise SystemExit(f"Invalid label {raw_label!r} for {row['filename']!r} in {path}")
             if label not in (0, 1):
                 raise SystemExit(f"Label must be 0 or 1, got {label} for {row['filename']!r} in {path}")
-            labels[row["filename"]] = label
+            labels[_normalize_relpath_key(row["filename"])] = label
         return labels
 
 
 def resolve_label(path: Path, input_dir: Path, labels_map: Dict[str, int], forced_label: Optional[int]) -> Optional[int]:
-    """Priority: manifest > folder-name convention > forced --label > (caller decides interactive/skip)."""
+    """Priority: manifest > folder-name convention > forced --label > (caller decides interactive/skip).
+
+    The manifest lookup key is normalised to forward-slash form (see
+    _normalize_relpath_key) because str(Path) uses backslashes on Windows
+    (e.g. "negative\\a.bin") while the manifest CSV and docs use "/" -
+    without normalising, a manifest lookup silently misses on Windows and
+    falls through to folder-name convention instead, picking the wrong
+    label.
+    """
     rel_path = path.relative_to(input_dir)
-    rel_key = str(rel_path)
+    rel_key = _normalize_relpath_key(str(rel_path))
     if rel_key in labels_map:
         return labels_map[rel_key]
     if path.name in labels_map:

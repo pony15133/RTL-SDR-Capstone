@@ -115,6 +115,48 @@ class TestResolveLabel:
 
         assert btd.resolve_label(path, input_dir, labels_map, forced_label=None) == 1
 
+    def test_manifest_matches_regardless_of_slash_direction_in_lookup_key(self, tmp_path):
+        """Regression test: str(Path) on Windows uses backslashes (e.g.
+        "negative\\a.bin") for the *resolved file path*, while manifests/
+        docs use forward slashes as the *dict key*. Both sides must
+        normalise to the same form, on every OS - this reproduces the
+        Windows CI failure without needing Windows to catch it again."""
+        input_dir = tmp_path
+        path = input_dir / "negative" / "a.bin"
+        path.parent.mkdir()
+        path.touch()
+
+        # A manifest key exactly as load_labels_manifest() would produce it
+        # (already normalised to forward slashes) - the file path resolves
+        # to a backslash form on Windows, and resolve_label must normalise
+        # its own lookup key to match.
+        labels_map = {"negative/a.bin": 1}
+        assert btd.resolve_label(path, input_dir, labels_map, forced_label=None) == 1
+        assert btd._normalize_relpath_key("negative\\a.bin") == "negative/a.bin"
+
+    def test_load_labels_manifest_normalises_backslash_keys(self, tmp_path):
+        manifest_path = tmp_path / "labels.csv"
+        manifest_path.write_text("filename,label\nnegative\\a.bin,1\n")
+
+        labels_map = btd.load_labels_manifest(manifest_path)
+
+        assert labels_map == {"negative/a.bin": 1}
+
+    def test_manifest_written_with_backslashes_resolves_correctly_end_to_end(self, tmp_path):
+        """A manifest authored with Windows-style backslash paths (e.g.
+        pasted from Explorer) must still resolve correctly via the real
+        load_labels_manifest() -> resolve_label() pipeline."""
+        input_dir = tmp_path
+        path = input_dir / "negative" / "a.bin"
+        path.parent.mkdir()
+        path.touch()
+        manifest_path = tmp_path / "labels.csv"
+        manifest_path.write_text("filename,label\nnegative\\a.bin,1\n")
+
+        labels_map = btd.load_labels_manifest(manifest_path)
+
+        assert btd.resolve_label(path, input_dir, labels_map, forced_label=None) == 1
+
     def test_manifest_matches_by_basename_too(self, tmp_path):
         input_dir = tmp_path
         path = input_dir / "sub" / "a.bin"
