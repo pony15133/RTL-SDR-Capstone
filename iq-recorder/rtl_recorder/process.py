@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import signal
 import subprocess
+import sys
 import threading
 from typing import List, Optional
 
@@ -52,8 +53,18 @@ class ProcessHandle:
             # process (and not this Python process itself).
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
 
+        cmd = self.cmd
+        if is_windows() and cmd and cmd[0].lower().endswith(".py"):
+            # Real rtl_sdr is always a native .exe, so this only ever fires
+            # for the fake_rtl_sdr.py test fixture. Windows' CreateProcess
+            # doesn't consult shebang lines like POSIX exec does, so
+            # launching a .py path directly fails with WinError 193 ("%1
+            # is not a valid Win32 application"); prefixing the interpreter
+            # explicitly is the standard fix.
+            cmd = [sys.executable, *cmd]
+
         self.proc = subprocess.Popen(
-            self.cmd,
+            cmd,
             cwd=self.cwd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
