@@ -1,5 +1,6 @@
 import sqlite3
 from pathlib import Path
+from contextlib import closing
 
 # Original schema (unchanged - existing databases/readers keep working).
 # `detection_result`/`confidence_score` ARE the rule-based detector's
@@ -36,6 +37,24 @@ ML_COLUMNS = {
     "model_version": "TEXT",
 }
 
+CAPTURE_COLUMNS = {
+    "satellite_name": "TEXT",
+    "norad_id": "INTEGER",
+    "frequency_hz": "INTEGER",
+    "sample_rate": "INTEGER",
+    "gain": "REAL",
+    "recording_status": "TEXT",
+    "scheduled_aos": "TEXT",
+    "scheduled_los": "TEXT",
+    "actual_recording_start": "TEXT",
+    "actual_recording_stop": "TEXT",
+    "recording_duration_seconds": "REAL",
+    "output_file_size": "INTEGER",
+    "expected_file_size": "INTEGER",
+    "simulated": "INTEGER",
+    "device_index": "INTEGER",
+    "metadata_file_path": "TEXT",
+}
 
 def _existing_columns(conn: sqlite3.Connection, table: str) -> set:
     cur = conn.execute(f"PRAGMA table_info({table})")
@@ -56,11 +75,24 @@ def _migrate_ml_columns(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE capture_results ADD COLUMN {column} {sql_type}")
 
 
+def _migrate_capture_columns(conn: sqlite3.Connection) -> None:
+    """Idempotently add capture metadata columns to the capture_results table."""
+    existing = _existing_columns(conn, "capture_results")
+
+    for column, sql_type in CAPTURE_COLUMNS.items():
+        if column not in existing:
+            conn.execute(
+                f"ALTER TABLE capture_results ADD COLUMN {column} {sql_type}"
+            )
+
+
 def init_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db_path) as conn:
+
+    with closing(sqlite3.connect(db_path)) as conn:
         conn.execute(SCHEMA)
         _migrate_ml_columns(conn)
+        _migrate_capture_columns(conn)
         conn.commit()
 
 
@@ -69,7 +101,7 @@ def insert_result(db_path: Path, row: dict) -> int:
     columns = ", ".join(row.keys())
     placeholders = ", ".join(["?"] * len(row))
     values = list(row.values())
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn:
         cur = conn.execute(
             f"INSERT INTO capture_results ({columns}) VALUES ({placeholders})",
             values,
@@ -81,7 +113,7 @@ def insert_result(db_path: Path, row: dict) -> int:
 def get_result(db_path: Path, result_id: int) -> dict:
     """Fetch one capture_results row as a dict (column name -> value). Used by tests/tooling."""
     init_db(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.execute("SELECT * FROM capture_results WHERE id = ?", (result_id,))
         row = cur.fetchone()
