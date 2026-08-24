@@ -367,10 +367,19 @@ class RTLSDRRecorder:
             session.finalized_event.wait(timeout=self.config.stop_grace_seconds + 10)
             return session.result
 
+        # Timestamp the stop *before* waiting for the process to actually
+        # exit, not after. rtl_sdr (real or the fake test fixture) keeps
+        # writing buffered samples for a brief moment after receiving the
+        # stop signal, so treating "actual stop" as the OS-confirmed-dead
+        # time - which can lag the signal by anywhere from a few ms up to
+        # stop_grace_seconds on a loaded machine - systematically overstates
+        # elapsed recording time relative to bytes actually captured. That
+        # was large enough on (slower/busier) macOS CI runners to trip the
+        # file-size sanity check below with a false "smaller than expected"
+        # failure, even though the real recording succeeded.
+        session.actual_stop = datetime.now(timezone.utc)
         if not self.config.simulate and session.process is not None:
             session.process.stop(self.config.stop_grace_seconds)
-
-        session.actual_stop = datetime.now(timezone.utc)
 
         if reason == "cancelled":
             status, error_message = RecordingStatus.CANCELLED, "Recording cancelled"

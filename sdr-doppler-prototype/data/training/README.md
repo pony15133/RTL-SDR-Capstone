@@ -86,6 +86,114 @@ verified labelled captures behind it, it must be considered:
    python train_model.py --dataset data/training/features.csv --output models/random_forest.joblib
    ```
 
+### Batch-building from a folder of raw captures (`.bin`/`.iq`/`.dat`/`.npy`)
+
+`scripts/label_capture.py` above is one file, one command, with an
+interactive prompt - fine for a handful of captures, tedious for a
+folder of them. `scripts/build_training_dataset.py` does the same feature
+extraction and CSV-append in bulk, over every raw capture file in a
+directory. Reading the file and extracting features is fully automatic
+(the same `extract_features()` used everywhere else); the label still has
+to come from somewhere, since this is supervised learning - the script
+supports three ways to supply it, checked in this order per file:
+
+1. **A manifest CSV** (`--labels-csv`) with columns `filename,label`,
+   matched against each file's path relative to `--input-dir` or its bare
+   basename:
+
+   ```bash
+   python scripts/build_training_dataset.py \
+       --input-dir /path/to/captures \
+       --labels-csv data/training/my_labels.csv \
+       --dataset data/training/features.csv \
+       --sample-rate 2400000 --center-freq 137900000 --binary-dtype complex64
+   ```
+
+2. **Folder-name convention** - no manifest needed if your captures are
+   already sorted into subfolders named `1`/`positive`/`pos`/`candidate`
+   and `0`/`negative`/`neg`/`noise`:
+
+   ```
+   captures/
+     positive/pass_001.bin
+     positive/pass_002.bin
+     negative/noise_001.bin
+   ```
+
+   ```bash
+   python scripts/build_training_dataset.py --input-dir captures --recursive \
+       --dataset data/training/features.csv --sample-rate 2400000 --center-freq 137900000
+   ```
+
+3. **A single `--label`** applied to every file in the run - useful when
+   an entire folder is confirmed one way (e.g. a folder of known
+   background-noise recordings):
+
+   ```bash
+   python scripts/build_training_dataset.py --input-dir captures/known_noise \
+       --label 0 --dataset data/training/features.csv
+   ```
+
+If none of these resolve a label for a given file, you're prompted
+interactively (same as `label_capture.py`) unless `--skip-unlabeled` is
+passed, in which case that file is skipped rather than blocking the batch.
+Files already present in the dataset (matched by their source path) are
+skipped automatically on a re-run, so it's safe to point this at a
+growing folder repeatedly; pass `--reprocess` to force re-adding them
+anyway. A capture that fails to load (corrupt/truncated file, wrong
+`--binary-dtype`) is logged and skipped - it never aborts the rest of the
+batch. Rows from this tool are always `is_synthetic=0`.
+
+### Windowed/chunked captures (sparse, low-duty-cycle signals)
+
+`label_capture.py` and `build_training_dataset.py` both label a whole
+file as one row. That's wrong for a capture where a real signal occupies
+only a small fraction of a much longer file - e.g. the "LoRadar"
+satellite-LoRa dataset: 4 MHz, complex64, only ~3% packet duty cycle per
+session. Averaging a few real packets
+across minutes of silence into one feature row washes the packets out
+into statistical noise. `scripts/chunk_bin_to_dataset.py` instead slices
+one large raw-IQ file into fixed-length, overlapping windows and scores
+each window individually with the same rule detector the rest of the
+pipeline uses:
+
+```bash
+python scripts/chunk_bin_to_dataset.py \
+    --input /path/to/session_001.bin \
+    --dataset data/training/features.csv \
+    --sample-rate 4000000 --center-freq 401300000 --binary-dtype complex64 \
+    --window-seconds 2.0 --stride-seconds 1.0 \
+    --snr-threshold-db 15 --min-valid-ratio 0.2 \
+    --save-candidate-images --output data/results/lora_review
+```
+
+Each window the rule detector rejects is auto-labelled 0 in bulk (tagged
+`auto-negative` in `notes`); each window it flags is a candidate you
+confirm interactively (or accept automatically with
+`--auto-accept-candidates`, tagged `auto-accepted candidate, not manually
+reviewed` so a weak label is never silently indistinguishable from a
+reviewed one). Windows are deduplicated by exact sample range, so
+re-running against the same file is safe.
+
+**Tune `--snr-threshold-db` and `--min-valid-ratio` before trusting the
+defaults on real data.** The pipeline's satellite-pass defaults
+(`--snr-threshold-db 6`, `--min-valid-ratio 0.45`) were validated against
+a signal spanning nearly an entire capture, not a short burst inside a
+much longer window. Verified empirically on a synthetic burst-in-noise
+window: at the default 6 dB threshold and ~1000 frequency bins, pure
+noise alone crosses the strongest-bin-vs-median-power check on almost
+every time slice (extreme-value statistics over that many bins), so
+`valid_signal_ratio` saturates near 1.0 for noise and real signal alike -
+useless as a discriminator - and a real burst's clean trace gets diluted
+by the noise-dominated rest of the window, failing `max_smoothness_hz`
+too. Raising `--snr-threshold-db` to ~15 dB fixed the false-"valid" rate
+under noise in that test, and lowering `--min-valid-ratio` to ~0.2
+correctly let a burst occupying under a third of the window still
+register. Treat those as a validated *starting point*, not a tuned
+result on your actual captures - confirm against a couple of
+known/expected-positive windows (`--save-candidate-images` helps here)
+before running `--auto-accept-candidates` across a whole file.
+
 ## Known Limitation: `signal_duration_seconds` / `drift_rate_hz_per_second`
 
 These two features are only in real seconds when the underlying capture

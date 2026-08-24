@@ -46,10 +46,12 @@ rtl_recorder/
     states.py          RecorderState / RecordingStatus enums
     exceptions.py       Exception hierarchy used internally
     utils.py             Executable discovery, expected file size, disk space
-    main.py               CLI entry point (manual + simulation modes)
+    scheduler.py           Wall-clock wait-until-a-time-of-day (--start-time/--start-at)
+    main.py                 CLI entry point (manual, simulation, and scheduled modes)
 recorder.py         Thin root-level wrapper: `python recorder.py ...`
 tests/
-    test_validation.py, test_filenames.py, test_metadata.py, test_recorder.py
+    test_validation.py, test_filenames.py, test_metadata.py, test_recorder.py,
+    test_scheduler.py, test_main_scheduling.py
     fixtures/fake_rtl_sdr.py   Fake rtl_sdr used to unit-test process control
     hardware/test_hardware_kiss92.py   Real-hardware-only tests (see §12)
 ```
@@ -80,6 +82,10 @@ operational failures.
   udev rule / blocklist the in-kernel `dvb_usb_rtl28xxu` driver so it
   doesn't claim the device (standard RTL-SDR setup step, documented in the
   rtl-sdr project's README).
+- **macOS**: no separate driver install needed - macOS doesn't ship a
+  conflicting built-in TV-tuner driver the way some Linux distros do, so
+  installing the tool (below) via Homebrew is normally sufficient on its
+  own.
 
 ## 5. Installing the RTL-SDR Command-Line Tools
 
@@ -90,6 +96,11 @@ operational failures.
 - **Linux**: `sudo apt install rtl-sdr` (Debian/Ubuntu) or build from
   source per the [osmocom rtl-sdr](https://osmocom.org/projects/rtl-sdr/wiki)
   instructions.
+- **macOS**: `brew install librtlsdr` (installs `rtl_sdr`/`rtl_test` onto
+  `PATH` directly, e.g. under `/opt/homebrew/bin` on Apple Silicon or
+  `/usr/local/bin` on Intel - no `--rtl-sdr-path`/`--rtl-test-path`
+  override needed unless Homebrew's `bin` directory isn't on your `PATH`).
+  Requires [Homebrew](https://brew.sh/) itself to be installed first.
 
 ## 6. Verifying the RTL-SDR Is Detected
 
@@ -143,6 +154,47 @@ Useful flags: `--gain auto` (or omit `--gain`) for AGC, `--output-dir`,
 `--rtl-sdr-path`/`--rtl-test-path` (explicit executable paths),
 `--device-index` (multi-dongle), `--skip-device-check`, `--log-level`,
 `--log-file`.
+
+### Auto-capture at a fixed clock time (e.g. an FM station at 7pm)
+
+`--start-time HH:MM` (or `--start-at` for an exact date+time) waits until
+that moment, then runs a normal manual recording - no satellite pass
+prediction involved, just "record this frequency at this wall-clock
+time." This is the `rtl_recorder.scheduler` module (`next_occurrence()` /
+`wait_until()`), separate from and much simpler than the AOS/LOS pass
+scheduling in §10 below.
+
+```bash
+python recorder.py \
+    --frequency 92000000 \
+    --sample-rate 2400000 \
+    --gain 30 \
+    --duration 1800 \
+    --satellite "KISS92-7PM" \
+    --start-time 19:00
+```
+
+Run this any time before 7pm and it waits (printing how long, updating
+you via the log) until the clock reaches `19:00` local time - today, or
+tomorrow if `19:00` has already passed today - then records for
+`--duration` seconds exactly as a normal manual recording would. Ctrl+C
+during the wait cancels cleanly (`CANCELLED`, exit code 130) without
+starting `rtl_sdr` at all. `--start-at 2026-08-24T19:00:00` schedules an
+exact date+time instead of "the next occurrence of a time of day."
+
+This only works while the process keeps running in the foreground (or
+under something like `tmux`/`screen`/a background service) for however
+long the wait is - it isn't a persistent scheduler. For a capture that
+must survive a closed terminal or a machine restart, use your OS's own
+scheduler to launch the (non-scheduled) manual-recording command at the
+right time instead:
+
+- **Linux/macOS (`cron`)**: `0 19 * * * cd /path/to/iq-recorder && python3 recorder.py --frequency 92000000 --sample-rate 2400000 --gain 30 --duration 1800 --satellite KISS92-7PM`
+- **Windows (Task Scheduler)**: create a Basic Task, trigger "Daily" at 7:00 PM, action "Start a program" running `python.exe` with arguments `recorder.py --frequency 92000000 --sample-rate 2400000 --gain 30 --duration 1800 --satellite KISS92-7PM` and "Start in" set to the `iq-recorder` folder.
+
+Both approaches call the exact same CLI, so `--start-time`/`--start-at`
+and OS-level scheduling are interchangeable - use whichever fits how
+you're running this.
 
 ## 10. Scheduled Recording (Phase 2)
 

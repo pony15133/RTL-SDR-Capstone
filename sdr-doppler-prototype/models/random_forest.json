@@ -1,0 +1,121 @@
+{
+  "model_type": "RandomForestClassifier",
+  "model_version": "random_forest_20260812T054836Z",
+  "training_timestamp": "2026-08-12T05:48:36.563433+00:00",
+  "random_forest_params": {
+    "bootstrap": true,
+    "ccp_alpha": 0.0,
+    "class_weight": null,
+    "criterion": "gini",
+    "max_depth": null,
+    "max_features": "sqrt",
+    "max_leaf_nodes": null,
+    "max_samples": null,
+    "min_impurity_decrease": 0.0,
+    "min_samples_leaf": 1,
+    "min_samples_split": 2,
+    "min_weight_fraction_leaf": 0.0,
+    "monotonic_cst": null,
+    "n_estimators": 100,
+    "n_jobs": null,
+    "oob_score": false,
+    "random_state": 42,
+    "verbose": 0,
+    "warm_start": false
+  },
+  "n_training_samples": 21,
+  "n_test_samples": 7,
+  "n_total_samples": 28,
+  "label_distribution": {
+    "0": 14,
+    "1": 14
+  },
+  "evaluation_metrics": {
+    "n_samples": 7,
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1_score": 1.0,
+    "confusion_matrix": [
+      [
+        4,
+        0
+      ],
+      [
+        0,
+        3
+      ]
+    ],
+    "roc_auc": 1.0
+  },
+  "cross_validation": {
+    "performed": true,
+    "folds": 5,
+    "f1_scores": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "f1_mean": 1.0,
+    "f1_std": 0.0
+  },
+  "feature_importance": [
+    {
+      "feature": "snr_db",
+      "importance": 0.18
+    },
+    {
+      "feature": "frequency_drift_hz",
+      "importance": 0.16
+    },
+    {
+      "feature": "occupied_bandwidth_hz",
+      "importance": 0.13
+    },
+    {
+      "feature": "smoothness_score",
+      "importance": 0.11
+    },
+    {
+      "feature": "drift_rate_hz_per_second",
+      "importance": 0.1
+    },
+    {
+      "feature": "peak_power",
+      "importance": 0.09
+    },
+    {
+      "feature": "signal_duration_seconds",
+      "importance": 0.09
+    },
+    {
+      "feature": "valid_signal_ratio",
+      "importance": 0.07
+    },
+    {
+      "feature": "mean_power",
+      "importance": 0.07
+    }
+  ],
+  "trained_on_synthetic_data": true,
+  "dataset_path": "C:\\Users\\user\\Desktop\\RTL-SDR-Bitbucket\\rtl-sdr-capstone\\sdr-doppler-prototype\\data\\training\\synthetic_example.csv",
+  "random_state": 42,
+  "test_size": 0.25,
+  "notes": null,
+  "disclaimer": "This model's evaluation metrics reflect performance on the held-out portion of the given dataset only. Until validated against a substantial set of real, independently-verified satellite-pass captures, treat this model as IMPLEMENTED BUT NOT VALIDATED.",
+  "feature_names": [
+    "snr_db",
+    "frequency_drift_hz",
+    "drift_rate_hz_per_second",
+    "smoothness_score",
+    "valid_signal_ratio",
+    "peak_power",
+    "mean_power",
+    "occupied_bandwidth_hz",
+    "signal_duration_seconds"
+  ],
+  "sklearn_version": "1.9.0",
+  "python_version": "3.14.7"
+}
