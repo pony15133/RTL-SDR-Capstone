@@ -82,6 +82,10 @@ operational failures.
   udev rule / blocklist the in-kernel `dvb_usb_rtl28xxu` driver so it
   doesn't claim the device (standard RTL-SDR setup step, documented in the
   rtl-sdr project's README).
+- **macOS**: no separate driver install needed - macOS doesn't ship a
+  conflicting built-in TV-tuner driver the way some Linux distros do, so
+  installing the tool (below) via Homebrew is normally sufficient on its
+  own.
 
 ## 5. Installing the RTL-SDR Command-Line Tools
 
@@ -92,6 +96,11 @@ operational failures.
 - **Linux**: `sudo apt install rtl-sdr` (Debian/Ubuntu) or build from
   source per the [osmocom rtl-sdr](https://osmocom.org/projects/rtl-sdr/wiki)
   instructions.
+- **macOS**: `brew install librtlsdr` (installs `rtl_sdr`/`rtl_test` onto
+  `PATH` directly, e.g. under `/opt/homebrew/bin` on Apple Silicon or
+  `/usr/local/bin` on Intel - no `--rtl-sdr-path`/`--rtl-test-path`
+  override needed unless Homebrew's `bin` directory isn't on your `PATH`).
+  Requires [Homebrew](https://brew.sh/) itself to be installed first.
 
 ## 6. Verifying the RTL-SDR Is Detected
 
