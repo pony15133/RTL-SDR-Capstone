@@ -25,9 +25,18 @@ def _fast_config(tmp_path, rtl_sdr_path=None, simulate=False, **overrides) -> Re
         output_dir=str(tmp_path),
         rtl_sdr_path=rtl_sdr_path,
         simulate=simulate,
-        startup_grace_seconds=0.2,
+        startup_grace_seconds=0.5,
         monitor_interval_seconds=0.1,
         stop_grace_seconds=2.0,
+        # The real-subprocess tests below (fake_rtl_sdr.py) measure elapsed
+        # wall-clock time around a genuine Python interpreter spawn - on a
+        # loaded/slow CI runner (observed on macOS) interpreter startup can
+        # itself eat a chunk of the short (~1s) test durations used here,
+        # understating the bytes actually written relative to elapsed time.
+        # That's CI timing jitter in the test harness, not a truncated
+        # recording, so give it more headroom than the production default
+        # (10%) rather than chase an exact wall-clock/byte-count match.
+        file_size_tolerance=0.25,
     )
     kwargs.update(overrides)
     return RecorderConfig(**kwargs)
