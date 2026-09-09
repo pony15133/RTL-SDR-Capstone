@@ -9,3 +9,15 @@ venv/
 models/*.joblib
 models/*.json
 !models/.gitkeep
+
+# Raw captures dropped into data/raw (e.g. a LoRadar .bin) are local input
+# data, not source - never commit them. The small tracked demo sample is
+# the one deliberate exception.
+data/raw/*
+!data/raw/sample.npy
+
+# Every capture -> detect run lands in its own data/results/session_*/
+# folder (see ensure_session_output_dir) - that's run output, not source.
+# The two legacy demo files tracked directly under data/results/ predate
+# the session-folder change and are the deliberate exception.
+data/results/session_*/
