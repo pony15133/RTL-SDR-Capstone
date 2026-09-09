@@ -276,3 +276,19 @@ def feature_vector_to_array(
             value = SMOOTHNESS_INF_SENTINEL_HZ if value > 0 else -SMOOTHNESS_INF_SENTINEL_HZ
         values.append(value)
     return np.array(values, dtype=float)
+
+
+def feature_vector_to_csv_dict(features: FeatureVector) -> dict:
+    """``features.as_dict()``, but with non-finite values sanitised the
+    same way ``feature_vector_to_array`` does for inference - so a CSV row
+    built from this is always safe for ``ml/train.py``'s validation (which
+    rejects any inf/NaN feature value) and for training.
+
+    ``smoothness_score`` is legitimately ``+inf`` whenever a window's trace
+    has fewer than 3 finite points (e.g. a silent/noise-only capture, or
+    label_lora_chunks.py's auto-labeled-0 windows) - the raw FeatureVector
+    keeps that true value for human-readable reporting, but anything
+    writing a training-CSV row should use this instead of ``as_dict()``.
+    """
+    array = feature_vector_to_array(features)
+    return dict(zip(FEATURE_NAMES, array.tolist()))

@@ -21,6 +21,12 @@ away everything but one bit of information. This script instead:
 4. Appends every row to the same CSV schema label_capture.py uses, so
    train_model.py can consume it directly.
 
+The scanning loop itself lives in `scan_and_label()`, which takes a
+`label_fn` callback instead of calling input() directly - this CLI
+(`run()`/`main()`) supplies a terminal-prompting one, and
+sdr-doppler-prototype/gui_app.py supplies one that pops up a review
+dialog instead, so both share the exact same windowing/feature/CSV logic.
+
 Example (LoRadar-style capture: complex64, 4 MHz sample rate, satellite
 uplink band centered around 401 MHz):
 
@@ -47,7 +53,9 @@ that baseline (commonly 15-20 dB) before doing a full run.
 import argparse
 import csv
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -58,8 +66,8 @@ from config import (  # noqa: E402
     DEFAULT_NPERSEG,
     DEFAULT_SNR_THRESHOLD_DB,
 )
-from detect import detect_candidate  # noqa: E402
-from features.extractor import FEATURE_NAMES, extract_features  # noqa: E402
+from detect import DetectionResult, detect_candidate  # noqa: E402
+from features.extractor import FEATURE_NAMES, FeatureVector, extract_features, feature_vector_to_csv_dict  # noqa: E402
 from spectrogram import SpectrogramData, iq_to_spectrogram, save_spectrogram_image  # noqa: E402
 from storage import safe_stem  # noqa: E402
 
@@ -68,6 +76,27 @@ from storage import safe_stem  # noqa: E402
 CSV_COLUMNS = ["capture_id", *FEATURE_NAMES, "label", "is_synthetic", "source_file", "sample_rate_hz", "nperseg", "noverlap", "notes"]
 
 _DTYPE_BYTES = {"complex64": 8, "complex128": 16}
+
+
+@dataclass
+class WindowReview:
+    """One window whose activity crossed --activity-ratio and needs a real label."""
+
+    window_index: int
+    window_start_s: float
+    capture_id: str
+    features: FeatureVector
+    detection: DetectionResult
+    spec: SpectrogramData
+    n_windows_estimate: int
+
+
+@dataclass
+class ScanStats:
+    windows_scanned: int = 0
+    reviewed: int = 0
+    auto_negative: int = 0
+    skipped_existing: int = 0
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -129,12 +158,23 @@ def prompt_for_label() -> "int | None":
         print("Please enter 1, 0, or s to skip.")
 
 
-def run(args: argparse.Namespace) -> int:
+def scan_and_label(
+    args: argparse.Namespace,
+    label_fn: Callable[[WindowReview], Optional[int]],
+    *,
+    stop_check: Optional[Callable[[], bool]] = None,
+) -> ScanStats:
+    """Step through --input in windows, auto-labeling inactive ones and
+    calling ``label_fn(review)`` for each active one.
+
+    ``label_fn`` returns 1/0 to record that label, or None to skip the
+    window without appending a row. ``stop_check``, if given, is polled
+    between windows and stops the scan early when it returns True (e.g. a
+    GUI "Stop" button) without losing rows already appended.
+    """
     bytes_per_sample = _DTYPE_BYTES[args.binary_dtype]
     total_bytes = args.input.stat().st_size
     total_samples = total_bytes // bytes_per_sample
-    duration_s = total_samples / args.sample_rate
-    print(f"Input: {args.input} ({total_bytes / 1e6:.1f} MB, {total_samples:,} samples, {duration_s:.3f}s at {args.sample_rate:,.0f} Hz)")
 
     window_samples = int(round(args.window_seconds * args.sample_rate))
     step_seconds = args.step_seconds if args.step_seconds is not None else args.window_seconds
@@ -150,10 +190,13 @@ def run(args: argparse.Namespace) -> int:
     stem = safe_stem(args.input)
 
     n_windows_total = max(0, (total_samples - start_sample - window_samples) // step_samples + 1)
-    reviewed = auto_negative = skipped_existing = window_index = 0
+    stats = ScanStats()
+    window_index = 0
 
     while start_sample + window_samples <= total_samples:
         if args.max_windows is not None and window_index >= args.max_windows:
+            break
+        if stop_check is not None and stop_check():
             break
 
         end_sample = start_sample + window_samples
@@ -161,7 +204,7 @@ def run(args: argparse.Namespace) -> int:
         capture_id = f"{stem}_w{window_index:05d}_{window_start_s:.3f}s"
 
         if capture_id in already_done:
-            skipped_existing += 1
+            stats.skipped_existing += 1
             window_index += 1
             start_sample += step_samples
             continue
@@ -183,7 +226,7 @@ def run(args: argparse.Namespace) -> int:
             if not args.no_auto_negatives:
                 label = 0
         else:
-            reviewed += 1
+            stats.reviewed += 1
             detection = detect_candidate(
                 spec,
                 min_valid_ratio=args.min_valid_ratio,
@@ -192,20 +235,21 @@ def run(args: argparse.Namespace) -> int:
                 snr_threshold_db=args.snr_threshold_db,
                 features=features,
             )
-            print(f"\n--- window {window_index} @ {window_start_s:.3f}s ({window_index + 1} of ~{n_windows_total}) ---")
-            print(f"Rule detector opinion: detected={detection.detected} confidence={detection.confidence_score:.3f}")
-            for name, value in features.as_dict().items():
-                print(f"  {name}: {value}")
-            image_path = None
-            if args.save_image:
-                image_path = save_spectrogram_image(spec, args.output / f"{capture_id}_spectrogram.png")
-                print(f"  spectrogram: {image_path}")
-            label = prompt_for_label()
+            review = WindowReview(
+                window_index=window_index,
+                window_start_s=window_start_s,
+                capture_id=capture_id,
+                features=features,
+                detection=detection,
+                spec=spec,
+                n_windows_estimate=n_windows_total,
+            )
+            label = label_fn(review)
 
         if label is not None:
             row = {
                 "capture_id": capture_id,
-                **features.as_dict(),
+                **feature_vector_to_csv_dict(features),
                 "label": label,
                 "is_synthetic": 0,
                 "source_file": f"{args.input}#window{window_index}@{window_start_s:.3f}s",
@@ -216,14 +260,37 @@ def run(args: argparse.Namespace) -> int:
             }
             append_row(dataset_path, row)
             if auto:
-                auto_negative += 1
+                stats.auto_negative += 1
 
         window_index += 1
+        stats.windows_scanned = window_index
         start_sample += step_samples
 
+    return stats
+
+
+def run(args: argparse.Namespace) -> int:
+    bytes_per_sample = _DTYPE_BYTES[args.binary_dtype]
+    total_bytes = args.input.stat().st_size
+    total_samples = total_bytes // bytes_per_sample
+    duration_s = total_samples / args.sample_rate
+    print(f"Input: {args.input} ({total_bytes / 1e6:.1f} MB, {total_samples:,} samples, {duration_s:.3f}s at {args.sample_rate:,.0f} Hz)")
+
+    def label_fn(review: WindowReview) -> "int | None":
+        print(f"\n--- window {review.window_index} @ {review.window_start_s:.3f}s ({review.window_index + 1} of ~{review.n_windows_estimate}) ---")
+        print(f"Rule detector opinion: detected={review.detection.detected} confidence={review.detection.confidence_score:.3f}")
+        for name, value in review.features.as_dict().items():
+            print(f"  {name}: {value}")
+        if args.save_image:
+            image_path = save_spectrogram_image(review.spec, args.output / f"{review.capture_id}_spectrogram.png")
+            print(f"  spectrogram: {image_path}")
+        return prompt_for_label()
+
+    stats = scan_and_label(args, label_fn)
+
     print(
-        f"\nDone. {window_index} windows scanned, {reviewed} shown for review, "
-        f"{auto_negative} auto-labeled 0, {skipped_existing} already in {dataset_path} (skipped)."
+        f"\nDone. {stats.windows_scanned} windows scanned, {stats.reviewed} shown for review, "
+        f"{stats.auto_negative} auto-labeled 0, {stats.skipped_existing} already in {args.dataset} (skipped)."
     )
     return 0
 

@@ -11,6 +11,7 @@ Preview tabs below browse.
 
 import json
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -18,6 +19,7 @@ from pathlib import Path
 from tkinter import BooleanVar, StringVar, Tk, Toplevel, filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 from config import (
     DB_PATH,
@@ -31,7 +33,11 @@ from config import (
     DEFAULT_SAMPLE_RATE_HZ,
     DEFAULT_SNR_THRESHOLD_DB,
 )
+from spectrogram import save_spectrogram_image
 from storage import format_detection_summary, format_training_summary
+
+from scripts.label_lora_chunks import ScanStats, WindowReview
+from scripts.label_lora_chunks import scan_and_label as lora_scan_and_label
 
 try:
     from PIL import Image, ImageTk
@@ -42,6 +48,19 @@ except Exception:
 APP_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = APP_DIR.parent
 PIPELINE_SCRIPT = PROJECT_ROOT / "pipeline.py"
+
+#: Sentinel put on the review queue by the background labeling thread to
+#: signal it's finished (successfully or not) - see _lora_poll_queue().
+_LORA_DONE = object()
+
+
+class _Namespace:
+    """A plain attribute bag - lets scan_and_label() (which expects an
+    argparse.Namespace-shaped object) be driven from GUI form fields
+    without going through argparse."""
+
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
 
 
 class SDRDopplerGUI:
@@ -64,6 +83,29 @@ class SDRDopplerGUI:
         self.auto_simulate_var = BooleanVar(value=True)
         self.auto_save_image_var = BooleanVar(value=False)
         self.auto_no_ml_var = BooleanVar(value=False)
+
+        # Label LoRa Captures (scripts/label_lora_chunks.py, run in-process
+        # so review dialogs can pop up instead of terminal prompts)
+        self.lora_input_var = StringVar(value="")
+        self.lora_dataset_var = StringVar(value=str(APP_DIR / "data" / "training" / "features.csv"))
+        self.lora_output_dir_var = StringVar(value=str(APP_DIR / "data" / "results" / "lora_review"))
+        self.lora_sample_rate_var = StringVar(value="4000000")
+        self.lora_center_freq_var = StringVar(value="401000000")
+        self.lora_window_seconds_var = StringVar(value="1.0")
+        self.lora_step_seconds_var = StringVar(value="")
+        self.lora_snr_threshold_var = StringVar(value="18")
+        self.lora_activity_ratio_var = StringVar(value="0.01")
+        self.lora_max_windows_var = StringVar(value="")
+        self.lora_start_seconds_var = StringVar(value="0")
+        self.lora_save_image_var = BooleanVar(value=True)
+        self.lora_no_auto_negatives_var = BooleanVar(value=False)
+        self.lora_notes_var = StringVar(value="")
+        self.lora_status_var = StringVar(value="Idle")
+        self._lora_thread = None
+        self._lora_stop_event = threading.Event()
+        self._lora_review_queue = queue.Queue()
+        self._lora_answer_queue = queue.Queue()
+        self._lora_dialog = None
 
         # Train Model / Run Detection / Open Results Folder
         self.dataset_var = StringVar(value=str(APP_DIR / "data" / "training" / "synthetic_example.csv"))
@@ -105,7 +147,7 @@ class SDRDopplerGUI:
         self.function_tabs.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 8))
 
         self.func_panels = {}
-        for name in ["Auto Capture", "Train Model", "Run Detection", "Open Results Folder"]:
+        for name in ["Auto Capture", "Label LoRa Captures", "Train Model", "Run Detection", "Open Results Folder"]:
             frame = ttk.Frame(self.function_tabs, padding=(16, 10, 16, 10))
             frame.grid_columnconfigure(1, weight=1)
             self.function_tabs.add(frame, text=name)
@@ -172,6 +214,37 @@ class SDRDopplerGUI:
                 "to try it without hardware attached.",
             )
             ttk.Button(parent, text="Run Auto Capture", command=lambda: self._run_selected_function("Auto Capture")).pack(anchor="w", pady=(12, 0))
+        elif selected == "Label LoRa Captures":
+            self._add_field_row_to_parent(parent, "Raw IQ .bin file", self.lora_input_var, browse_func=self._choose_lora_input)
+            self._add_field_row_to_parent(parent, "Training dataset CSV", self.lora_dataset_var, browse_func=self._choose_lora_dataset)
+            self._add_field_row_to_parent(parent, "Sample rate (Hz)", self.lora_sample_rate_var)
+            self._add_field_row_to_parent(parent, "Center freq (Hz)", self.lora_center_freq_var)
+            self._add_field_row_to_parent(parent, "Window length (s)", self.lora_window_seconds_var)
+            self._add_field_row_to_parent(parent, "Step between windows (s, blank = no overlap)", self.lora_step_seconds_var)
+            self._add_field_row_to_parent(parent, "SNR threshold (dB)", self.lora_snr_threshold_var)
+            self._add_field_row_to_parent(parent, "Activity ratio", self.lora_activity_ratio_var)
+            self._add_field_row_to_parent(parent, "Max windows (blank = whole file)", self.lora_max_windows_var)
+            self._add_field_row_to_parent(parent, "Start offset (s)", self.lora_start_seconds_var)
+            self._add_field_row_to_parent(parent, "Review image folder", self.lora_output_dir_var, browse_func=self._choose_lora_output_dir)
+            self._add_checkbox_row_to_parent(parent, "Save spectrogram image for each reviewed window", self.lora_save_image_var)
+            self._add_checkbox_row_to_parent(parent, "Don't record auto-labeled-0 (inactive) windows at all", self.lora_no_auto_negatives_var)
+            self._add_info_label_to_parent(
+                parent,
+                "Chunks a large capture into windows instead of labeling the whole file as one row - built for "
+                "sparse data like the LoRadar dataset. Inactive windows are auto-labeled 0 without asking; a "
+                "window with detected energy pops up a review dialog with its spectrogram for you to label "
+                "1 (signal) / 0 (noise) / Skip. Calibrate the SNR threshold on a small run first (set Max windows "
+                "to ~20) - pure noise typically reads ~8-12 dB here, so the default pipeline threshold (6 dB) is "
+                "too low to gate LoRa activity.",
+            )
+            status_row = ttk.Frame(parent)
+            status_row.pack(fill="x", pady=(12, 0))
+            ttk.Label(status_row, text="Session status:").pack(side="left")
+            ttk.Label(status_row, textvariable=self.lora_status_var, foreground="#005a9c").pack(side="left", padx=(6, 0))
+            button_row = ttk.Frame(parent)
+            button_row.pack(fill="x", pady=(6, 0))
+            ttk.Button(button_row, text="Start Labeling Session", command=self._start_lora_labeling).pack(side="left")
+            ttk.Button(button_row, text="Stop Session", command=self._stop_lora_labeling).pack(side="left", padx=(8, 0))
         elif selected == "Train Model":
             self._add_field_row_to_parent(parent, "Dataset CSV", self.dataset_var, browse_func=self._choose_dataset)
             self._add_field_row_to_parent(parent, "Model output", self.model_var, browse_func=self._choose_model_path)
@@ -240,6 +313,29 @@ class SDRDopplerGUI:
         folder = filedialog.askdirectory(title="Choose detection output folder", initialdir=self.auto_output_dir_var.get())
         if folder:
             self.auto_output_dir_var.set(folder)
+
+    def _choose_lora_input(self):
+        file = filedialog.askopenfilename(
+            title="Choose raw IQ capture",
+            filetypes=[("Binary IQ", "*.bin *.iq *.dat *.raw"), ("All files", "*.*")],
+        )
+        if file:
+            self.lora_input_var.set(file)
+
+    def _choose_lora_dataset(self):
+        file = filedialog.asksaveasfilename(
+            title="Choose training dataset CSV",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialdir=str(APP_DIR / "data" / "training"),
+        )
+        if file:
+            self.lora_dataset_var.set(file)
+
+    def _choose_lora_output_dir(self):
+        folder = filedialog.askdirectory(title="Choose review image folder", initialdir=self.lora_output_dir_var.get())
+        if folder:
+            self.lora_output_dir_var.set(folder)
 
     def _choose_dataset(self):
         file = filedialog.askopenfilename(
@@ -344,6 +440,209 @@ class SDRDopplerGUI:
         self.db_path_var.set(str(db_path))
 
         self._run_command(cmd, title="Auto capture", cwd=PROJECT_ROOT)
+
+    # ------------------------------------------------------------------ #
+    # Label LoRa Captures - runs scan_and_label() in a background thread;
+    # windows needing review hand off to the main thread via a queue so a
+    # modal dialog (with the spectrogram) can be shown safely, and the
+    # dialog's answer is handed back the same way. See label_lora_chunks.py.
+    # ------------------------------------------------------------------ #
+
+    def _start_lora_labeling(self):
+        if self._lora_thread is not None and self._lora_thread.is_alive():
+            messagebox.showinfo("Already running", "A labeling session is already in progress.")
+            return
+
+        input_path = Path(self.lora_input_var.get()).expanduser()
+        if not input_path.exists():
+            messagebox.showerror("Capture missing", f"The capture does not exist:\n{input_path}")
+            return
+
+        try:
+            sample_rate = float(self.lora_sample_rate_var.get())
+            center_freq = float(self.lora_center_freq_var.get())
+            window_seconds = float(self.lora_window_seconds_var.get())
+            step_seconds = float(self.lora_step_seconds_var.get()) if self.lora_step_seconds_var.get().strip() else None
+            snr_threshold_db = float(self.lora_snr_threshold_var.get())
+            activity_ratio = float(self.lora_activity_ratio_var.get())
+            max_windows = int(self.lora_max_windows_var.get()) if self.lora_max_windows_var.get().strip() else None
+            start_seconds = float(self.lora_start_seconds_var.get() or 0)
+        except ValueError:
+            messagebox.showerror("Invalid input", "Sample rate, center freq, window/step seconds, SNR threshold, activity ratio, max windows, and start offset must all be numbers.")
+            return
+
+        dataset_path = Path(self.lora_dataset_var.get()).expanduser()
+        dataset_path.parent.mkdir(parents=True, exist_ok=True)
+        output_dir = Path(self.lora_output_dir_var.get()).expanduser()
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        args = _Namespace(
+            input=input_path,
+            dataset=dataset_path,
+            output=output_dir,
+            sample_rate=sample_rate,
+            center_freq=center_freq,
+            binary_dtype="complex64",
+            window_seconds=window_seconds,
+            step_seconds=step_seconds,
+            nperseg=DEFAULT_NPERSEG,
+            noverlap=DEFAULT_NOVERLAP,
+            snr_threshold_db=snr_threshold_db,
+            activity_ratio=activity_ratio,
+            no_auto_negatives=self.lora_no_auto_negatives_var.get(),
+            save_image=self.lora_save_image_var.get(),
+            min_drift_hz=0.0,
+            max_smoothness_hz=float("inf"),
+            min_valid_ratio=0.0,
+            max_windows=max_windows,
+            start_seconds=start_seconds,
+            notes=self.lora_notes_var.get(),
+        )
+
+        self._lora_stop_event.clear()
+        self._lora_review_queue = queue.Queue()
+        self._lora_answer_queue = queue.Queue()
+        self.lora_status_var.set("Running...")
+
+        # Tkinter variables/widgets are main-thread-only; the worker thread
+        # below must never touch self.lora_*_var directly (see
+        # _lora_label_fn's docstring), so capture the plain values it needs
+        # here, on the main thread, and close over those instead.
+        review_save_image = args.save_image
+        review_output_dir = output_dir
+        review_queue = self._lora_review_queue
+        answer_queue = self._lora_answer_queue
+
+        def label_fn(review: WindowReview) -> "int | None":
+            """Runs on the background thread. Hands the review off to the
+            main thread via a queue and blocks until _lora_poll_queue()
+            (main thread) puts an answer back onto answer_queue."""
+            image_path = None
+            if review_save_image:
+                image_path = save_spectrogram_image(review.spec, review_output_dir / f"{review.capture_id}_spectrogram.png")
+            review_queue.put((review, image_path, None))
+            return answer_queue.get()
+
+        def worker():
+            try:
+                stats = lora_scan_and_label(args, label_fn, stop_check=self._lora_stop_event.is_set)
+                review_queue.put((_LORA_DONE, stats, None))
+            except Exception as exc:  # noqa: BLE001 - surfaced to the GUI, not swallowed
+                review_queue.put((_LORA_DONE, None, exc))
+
+        self._lora_thread = threading.Thread(target=worker, daemon=True)
+        self._lora_thread.start()
+        self.root.after(150, self._lora_poll_queue)
+
+    def _stop_lora_labeling(self):
+        if self._lora_thread is None or not self._lora_thread.is_alive():
+            return
+        self._lora_stop_event.set()
+        # If a review dialog is open right now, the worker is blocked
+        # waiting for its answer - unblock it with "skip" so the stop is
+        # noticed immediately instead of after the dialog is closed normally.
+        self._lora_answer_queue.put(None)
+        self.lora_status_var.set("Stopping...")
+
+    def _lora_poll_queue(self):
+        try:
+            item = self._lora_review_queue.get_nowait()
+        except queue.Empty:
+            self.root.after(150, self._lora_poll_queue)
+            return
+
+        marker, payload, error = item
+        if marker is _LORA_DONE:
+            self._lora_finish(payload, error)
+            return
+
+        review, image_path = marker, payload
+        self._show_lora_review_dialog(review, image_path)
+        self.root.after(150, self._lora_poll_queue)
+
+    def _show_lora_review_dialog(self, review: WindowReview, image_path):
+        self.lora_status_var.set(f"Reviewing window {review.window_index + 1} of ~{review.n_windows_estimate}...")
+
+        dialog = Toplevel(self.root)
+        dialog.title(f"Label window {review.window_index} @ {review.window_start_s:.3f}s")
+        dialog.geometry("760x640")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.protocol("WM_DELETE_WINDOW", lambda: None)  # force an explicit answer, not the window-close X
+
+        answered = {"done": False}
+
+        def answer(label):
+            if answered["done"]:
+                return
+            answered["done"] = True
+            dialog.grab_release()
+            dialog.destroy()
+            self._lora_answer_queue.put(label)
+
+        def stop_session():
+            self._lora_stop_event.set()
+            answer(None)
+
+        info = ttk.Label(
+            dialog,
+            text=(
+                f"Window {review.window_index} @ {review.window_start_s:.3f}s "
+                f"({review.window_index + 1} of ~{review.n_windows_estimate})\n"
+                f"Rule detector: detected={review.detection.detected}  confidence={review.detection.confidence_score:.3f}"
+            ),
+            justify="left",
+        )
+        info.pack(anchor="w", padx=12, pady=(12, 4))
+
+        image_label = ttk.Label(dialog, anchor="center")
+        image_label.pack(fill="both", expand=True, padx=12, pady=4)
+        if image_path is not None and Image is not None and ImageTk is not None:
+            try:
+                with Image.open(image_path) as img:
+                    img.thumbnail((700, 380))
+                    photo = ImageTk.PhotoImage(img)
+                image_label.configure(image=photo, text="")
+                image_label.image = photo
+            except Exception:
+                image_label.configure(text=f"(could not load {image_path})")
+        elif image_path is not None:
+            image_label.configure(text=f"Spectrogram saved to:\n{image_path}\n(install Pillow to preview it here)")
+        else:
+            image_label.configure(text="(spectrogram image saving is off)")
+
+        features_text = "\n".join(f"{name}: {value}" for name, value in review.features.as_dict().items())
+        features_box = ScrolledText(dialog, height=8, wrap="word")
+        features_box.pack(fill="x", padx=12, pady=(4, 8))
+        features_box.insert("end", features_text)
+        features_box.config(state="disabled")
+
+        button_row = ttk.Frame(dialog)
+        button_row.pack(pady=(0, 12))
+        ttk.Button(button_row, text="Signal (1)", command=lambda: answer(1)).pack(side="left", padx=4)
+        ttk.Button(button_row, text="Noise (0)", command=lambda: answer(0)).pack(side="left", padx=4)
+        ttk.Button(button_row, text="Skip", command=lambda: answer(None)).pack(side="left", padx=4)
+        ttk.Button(button_row, text="Stop Session", command=stop_session).pack(side="left", padx=(20, 4))
+
+    def _lora_finish(self, stats: "ScanStats | None", error: "Exception | None"):
+        if error is not None:
+            self.lora_status_var.set("Failed")
+            messagebox.showerror("Labeling session failed", str(error))
+            return
+
+        self.lora_status_var.set("Done" if not self._lora_stop_event.is_set() else "Stopped")
+        summary = (
+            f"LoRa labeling session finished.\n\n"
+            f"Windows scanned: {stats.windows_scanned}\n"
+            f"Shown for review: {stats.reviewed}\n"
+            f"Auto-labeled 0 (no activity): {stats.auto_negative}\n"
+            f"Already in dataset (skipped): {stats.skipped_existing}\n\n"
+            f"Dataset: {self.lora_dataset_var.get()}"
+        )
+        self.results_box.config(state="normal")
+        self.results_box.delete("1.0", "end")
+        self.results_box.insert("end", summary)
+        self.results_box.config(state="disabled")
 
     def _train_model(self):
         dataset = Path(self.dataset_var.get()).expanduser()
