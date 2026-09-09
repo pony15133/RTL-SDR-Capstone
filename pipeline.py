@@ -50,7 +50,7 @@ from detect import detect_candidate  # noqa: E402
 from detection.ml_detector import run_ml_detection  # noqa: E402
 from features.extractor import extract_features  # noqa: E402
 from spectrogram import iq_to_spectrogram, save_spectrogram_image  # noqa: E402
-from storage import safe_stem, save_summary, utc_timestamp  # noqa: E402
+from storage import ensure_session_output_dir, safe_stem, save_summary, utc_timestamp  # noqa: E402
 
 #: rtl_sdr's native raw output: interleaved unsigned 8-bit I/Q samples,
 #: offset-binary around 127.5 (see rtl_recorder README / rtl_sdr(1)). This
@@ -149,13 +149,17 @@ def process_recording(
     ml_detection = None if no_ml else run_ml_detection(ml_model_path, features)
 
     timestamp = utc_timestamp()
+    # Groups this run's summary/image under their own timestamped folder,
+    # same as sdr-doppler-prototype/src/main.py - what the GUI's
+    # results/image-preview panels browse as "today's session".
+    session_dir = ensure_session_output_dir(output_dir)
     image_path = None
     if save_image:
         image_path = save_spectrogram_image(
             spec,
-            output_dir / f"{safe_stem(input_path)}_{timestamp.replace(':', '')}_spectrogram.png",
+            session_dir / f"{safe_stem(input_path)}_{timestamp.replace(':', '')}_spectrogram.png",
         )
-    summary_path = save_summary(output_dir, input_path, timestamp, detection, ml_detection)
+    summary_path = save_summary(session_dir, input_path, timestamp, detection, ml_detection)
 
     row = {
         "input_file": str(input_path),
