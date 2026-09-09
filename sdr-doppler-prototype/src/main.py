@@ -18,8 +18,19 @@ from detect import detect_candidate
 from detection.ml_detector import run_ml_detection
 from features.extractor import extract_features
 from load_data import is_raw_iq_path, load_input
-from spectrogram import iq_to_spectrogram, matrix_to_spectrogram, save_spectrogram_image
-from storage import safe_stem, save_summary, utc_timestamp
+from spectrogram import (
+    iq_to_spectrogram,
+    matrix_to_spectrogram,
+    save_chunked_spectrogram_images,
+    save_spectrogram_image,
+)
+from storage import (
+    ensure_session_output_dir,
+    format_detection_summary,
+    safe_stem,
+    save_summary,
+    utc_timestamp,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,6 +48,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-drift-hz", type=float, default=DEFAULT_MIN_DRIFT_HZ)
     parser.add_argument("--max-smoothness-hz", type=float, default=DEFAULT_MAX_SMOOTHNESS_HZ)
     parser.add_argument("--save-image", action="store_true", help="Save a PNG spectrogram image")
+    parser.add_argument(
+        "--image-chunk-size",
+        type=int,
+        default=None,
+        help="If set, render the spectrogram in chunks of this many time rows to avoid memory blow-ups on large captures.",
+    )
+    parser.add_argument(
+        "--image-chunk-overlap",
+        type=int,
+        default=0,
+        help="Overlap between successive spectrogram chunks when using --image-chunk-size.",
+    )
     parser.add_argument("--ml-model", type=Path, default=DEFAULT_ML_MODEL_PATH, help="Path to a trained Random Forest model (.joblib)")
     parser.add_argument("--no-ml", action="store_true", help="Skip ML detection even if a trained model is available")
     return parser
@@ -76,14 +99,28 @@ def run(args: argparse.Namespace) -> int:
     ml_detection = None if args.no_ml else run_ml_detection(args.ml_model, features)
 
     timestamp = utc_timestamp()
+    # Groups this run's summary/image(s) under their own timestamped folder
+    # instead of a flat output dir - what the GUI's results/image-preview
+    # panels browse as "today's session".
+    session_dir = ensure_session_output_dir(args.output)
     image_path = None
     if args.save_image:
-        image_path = save_spectrogram_image(
-            spec,
-            args.output / f"{safe_stem(args.input)}_{timestamp.replace(':', '')}_spectrogram.png",
-        )
+        if args.image_chunk_size and args.image_chunk_size > 0:
+            chunk_paths = save_chunked_spectrogram_images(
+                spec,
+                session_dir / "spectrogram_chunks",
+                chunk_size=args.image_chunk_size,
+                overlap=args.image_chunk_overlap,
+                prefix=f"{safe_stem(args.input)}_{timestamp.replace(':', '')}_spectrogram",
+            )
+            image_path = chunk_paths[0] if chunk_paths else None
+        else:
+            image_path = save_spectrogram_image(
+                spec,
+                session_dir / f"{safe_stem(args.input)}_{timestamp.replace(':', '')}_spectrogram.png",
+            )
 
-    summary_path = save_summary(args.output, args.input, timestamp, detection, ml_detection)
+    summary_path = save_summary(session_dir, args.input, timestamp, detection, ml_detection)
 
     raw_iq_file_path = str(args.input) if detection.detected and loaded.kind == "iq" and is_raw_iq_path(args.input) else None
     row = {
@@ -127,6 +164,8 @@ def run(args: argparse.Namespace) -> int:
     print(f"summary={summary_path}")
     if image_path:
         print(f"spectrogram_image={image_path}")
+    print()
+    print(format_detection_summary(row))
     return 0
 
 
