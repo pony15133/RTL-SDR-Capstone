@@ -187,27 +187,38 @@ Both approaches call the exact same CLI, so `--start-time`/`--start-at`
 and OS-level scheduling are interchangeable - use whichever fits how
 you're running this.
 
-## 10. Scheduled Recording (Phase 2)
+## 10. Scheduled Recording from Satellite Passes
 
-`record_pass()` (AOS/LOS + pre/post buffer recording) is part of the
-public interface but intentionally raises `NotImplementedError` in this
-Phase 1 delivery - manual recording and simulation had to be validated
-first, per the project's incremental development plan. Its intended
-signature:
+`record_pass()` waits for a pass and records from AOS - `pre_buffer` to
+LOS + `post_buffer`. It joins a pass already in progress, refuses one
+that's already over, and can be cancelled while waiting
+(`cancel_recording()`). Pass times come from `rtl_recorder.passes`:
 
 ```python
+from rtl_recorder import RTLSDRRecorder, RecorderConfig
+from rtl_recorder.passes import GroundStation, get_tle, find_passes
+
+station = GroundStation(lat_deg=1.3521, lon_deg=103.8198, alt_m=15)
+tle = get_tle(25544)                       # CelesTrak, cached in tle_cache/ for 12 h
+next_pass = find_passes(tle, station, hours=24, min_max_elevation_deg=15)[0]
+
+recorder = RTLSDRRecorder(RecorderConfig())
 result = recorder.record_pass(
-    satellite_name="METEOR-M2-4",
-    norad_id=40069,
-    frequency_hz=137_900_000,
-    sample_rate=2_400_000,
-    gain=30,
-    aos=aos_datetime_utc,   # timezone-aware
-    los=los_datetime_utc,   # timezone-aware
-    pre_buffer=30,
-    post_buffer=30,
+    satellite_name="ISS", norad_id=25544,
+    frequency_hz=145_800_000, sample_rate=1_024_000, gain=30,
+    aos=next_pass.aos, los=next_pass.los, pre_buffer=30, post_buffer=30,
 )
 ```
+
+`pip install sgp4` for the standard SGP4 propagator. Without it, a
+built-in Kepler + J2 model is used, which is within about 7.5 km of the official
+SGP4 verification case, or roughly 1 s of pass timing. For the full loop
+(many satellites, detection, database, retention) use `auto_capture.py` at
+the repo root.
+
+**Cross-platform:** the RTL-SDR tools are found on PATH, in the usual
+install folders for Windows / macOS / Linux, or in `$RTL_SDR_HOME`. Run
+`python -m rtl_recorder.doctor` to check a machine.
 
 ## 11. Python Interface
 
