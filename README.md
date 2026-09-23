@@ -1,111 +1,91 @@
-# SDR Doppler Prototype
+# RTL-SDR Satellite Capture, Detection & Archive
 
-Backend-only Python prototype for detecting candidate satellite Doppler signals from RTL-SDR IQ captures or precomputed spectrogram matrices.
+Capstone project: **database of signals, position histories, archiving and status monitoring** for a low-cost RTL-SDR ground station.
 
-The code is intentionally small and readable for a university capstone prototype. It does not include a GUI, ML model, orbital mechanics, cloud deployment, or production capture orchestration.
+The system predicts when satellites pass overhead, records their radio signal with an RTL-SDR, decides with a rule-based detector and a machine-learning model whether a satellite was actually captured, stores everything in a database, and keeps only the recordings worth keeping.
 
-## What Is Included
+```
+ TLE (CelesTrak)            iq-recorder                     sdr-doppler-prototype
+ ───────────────     ────────────────────────     ───────────────────────────────────────────
+ pass prediction ──> wait for AOS ─> rtl_sdr ──> spectrogram ─> features ─┬─> rule detector
+ (AOS/LOS/max el)    record AOS..LOS (+buffers)      (.iq + .json)          └─> Random Forest (ML)
+                                                                                     │
+          SQLite: capture_results · pass_positions · status_log  <───────────────────┤
+          IQ retention: keep / archive / delete by ML confidence <───────────────────┘
+```
 
-- Loads sample input data from a file.
-- Converts raw IQ samples to a spectrogram with `scipy.signal.spectrogram`.
-- Loads existing spectrogram matrices from `.txt`, `.csv`, or 2D `.npy` files.
-- Extracts the strongest frequency bin for each time slice.
-- Applies median filtering to smooth the frequency trace.
-- Uses simple rules for candidate detection:
-  - enough valid signal points,
-  - enough frequency drift,
-  - smoother than random noise.
-- Saves a JSON result summary.
-- Optionally saves a spectrogram PNG.
-- Stores one row per capture in SQLite.
-- Stores the raw IQ file path only when detection is positive.
+## Layout
 
-## Setup
+| Path | What it is |
+|---|---|
+| `auto_capture.py` | **The whole pipeline in one command**: predict passes → wait → record → detect → database → retention |
+| `pipeline.py` | One recording → detection → database (used by `auto_capture.py`; also a manual CLI) |
+| `capture_config.example.json` | Ground station (Singapore), recording defaults, satellite list |
+| `iq-recorder/` | `rtl_recorder` package: cross-platform `rtl_sdr` control, pass prediction (`passes.py`), `record_pass()`, environment `doctor` |
+| `sdr-doppler-prototype/` | Signal processing, features, rule + ML detectors, training, database, GUI, visualisation |
+| `sdr-doppler-prototype/gui_app.py` | Desktop GUI (Windows: `launch_gui.bat`, macOS/Linux: `launch_gui.sh`) |
+
+## Setup (Windows, macOS, Linux)
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# Windows: .venv\Scripts\activate     macOS/Linux: source .venv/bin/activate
+pip install -r sdr-doppler-prototype/requirements.txt -r iq-recorder/requirements.txt
+python pipeline.py --doctor        # checks rtl_sdr/rtl_test, the dongle, folders and packages
 ```
 
-On Windows PowerShell:
+`--doctor` finds the RTL-SDR tools on PATH or in the usual install folders for your OS. If they're missing, it prints the install step for that OS: `brew install librtlsdr` (macOS), `sudo apt install rtl-sdr` (Linux), or the osmocom zip plus Zadig (Windows). You can also point `RTL_SDR_HOME` at the folder. Nothing hard-codes `rtl_sdr.exe`.
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-## Usage
-
-From this folder:
+## Everyday commands (from the repo root)
 
 ```bash
-python scripts/make_synthetic_sample.py
+# 1. What passes are coming? (TLEs downloaded + cached in tle_cache/)
+python auto_capture.py --config capture_config.example.json --list-only
+
+# 2. 20-second end-to-end demo, no hardware
+python auto_capture.py --config capture_config.example.json --demo
+
+# 3. Real unattended capture (Ctrl+C stops cleanly)
+python auto_capture.py --config capture_config.json --forever
+
+# Look at any recording - waterfall only, no ML
+python sdr-doppler-prototype/src/visualize.py --input recordings/ISS_..._145800000Hz.iq
+
+# What's in the database? (captures, status log, one capture's satellite track)
+python sdr-doppler-prototype/src/history.py
+python sdr-doppler-prototype/src/history.py --capture 12
+
+# Train the model (grouped train/validation/test split, see below)
+cd sdr-doppler-prototype
+python train_model.py --dataset data/training/rsp03_camras_features.csv --output models/random_forest.joblib
 ```
+
+## How the supervisors' requests are covered
+
+| Request | Where |
+|---|---|
+| Retrieve pass data, schedule and set start/stop/duration automatically | `iq-recorder/rtl_recorder/passes.py` (TLE → AOS/LOS/max elevation/Doppler; uses `sgp4` if installed, otherwise a built-in model checked against the official SGP4 test case), `RTLSDRRecorder.record_pass()`, `auto_capture.py` |
+| Database updates every time the recorder runs (Bijaya, 24 Aug) | `pipeline.process_recording()` writes the recorder metadata (satellite, NORAD, frequency, rate, gain, AOS/LOS, actual start/stop, sizes). Failed or busy recordings are logged too |
+| Components tested together as one package | `tests/test_pipeline.py`, `tests/test_auto_capture.py` (simulated end-to-end) |
+| Separate visualisation, no model needed (Bijaya, 24 Aug) | `src/visualize.py` + GUI tab **Visualise IQ**. Reads rtl_sdr `.iq` (cu8), SigMF/CAMRAS (ci16), `.bin` (complex64), SDR# `.wav` |
+| Cross-platform, no `rtl_sdr.exe` (Bijaya, 24 Aug) | `rtl_recorder/utils.find_executable()` (per-OS search), `rtl_recorder/doctor.py`, `launch_gui.sh` |
+| ML confidence decides whether to keep the IQ file | `src/retention.py`: `keep-all` / `archive-negatives` / `delete-negatives`, with the decision logged per row |
+| Proper train / validation / test methodology (Xinyi, 9 Sep) | `src/ml/train.py`: split by recording, tuned on validation, test scored once, `<model>_splits.csv` |
+| Position histories and status monitoring (project title) | Tables `pass_positions` (az/el/range/Doppler every 10 s per pass) and `status_log`, shown by `history.py` and the GUI tab **Capture History** |
+
+## Database (`sdr-doppler-prototype/data/results/captures.sqlite3`)
+
+- **`capture_results`**: one row per recorder run. Detection (rule and ML), recording metadata, `processing_status`, and `iq_retention` with its reason and score. Older databases are migrated in place without losing data.
+- **`pass_positions`**: the satellite's position during each recorded pass, linked by `capture_id`.
+- **`status_log`**: timestamped scheduler, recorder and pipeline events.
+
+## Tests
 
 ```bash
-python src/main.py --input data/raw/sample.npy --output data/results/ --save-image
+python -m pytest            # from the repo root: all three projects, hardware tests skipped
+python -m pytest -m hardware   # only with a real dongle attached
 ```
 
-For a text spectrogram matrix:
+## Data
 
-```bash
-python src/main.py --input data/spectrograms/spectrogram0_136800000.txt --output data/results/
-```
-
-Useful tuning options:
-
-```bash
-python src/main.py \
-  --input data/raw/sample.npy \
-  --output data/results/ \
-  --sample-rate 240000 \
-  --center-freq 136800000 \
-  --snr-threshold-db 6 \
-  --min-valid-ratio 0.45 \
-  --min-drift-hz 1500 \
-  --max-smoothness-hz 8000 \
-  --save-image
-```
-
-## Input Formats
-
-- `.npy` 1D complex array: raw IQ samples.
-- `.bin`, `.iq`, `.dat`: raw binary IQ samples, default dtype `complex64`.
-- `.npy` 2D array: spectrogram matrix in dB.
-- `.txt`, `.csv`: spectrogram matrix in dB.
-
-The notebook material this prototype was based on saved spectrogram text files with time rows and frequency columns. This prototype uses the same assumption for text matrices.
-
-## Database
-
-Initialize manually:
-
-```bash
-bash scripts/init_db.sh
-```
-
-The main pipeline also initializes the database automatically. Results are written to:
-
-```text
-data/results/captures.sqlite3
-```
-
-Table: `capture_results`
-
-- `id`
-- `input_file`
-- `timestamp_utc`
-- `detection_result`
-- `confidence_score`
-- `valid_signal_ratio`
-- `frequency_drift_hz`
-- `smoothness_score`
-- `spectrogram_image_path`
-- `raw_iq_file_path`
-- `notes`
-
-## Notes
-
-This detector is a rule-based first pass. It is useful for sorting captures into "worth inspecting" and "probably noise" groups, not for final scientific classification.
+The client's recordings live in `Data/` (git-ignored, several GB). `sdr-doppler-prototype/data/training/README.md` describes the labelled datasets and how they were built (`scripts/label_known_carrier.py`).

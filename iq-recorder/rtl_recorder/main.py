@@ -11,6 +11,13 @@ Simulation mode (no hardware required)::
 
     python -m rtl_recorder.main --simulate --duration 10
 
+Scheduled recording - e.g. auto-capture an FM station at 7pm local time
+(waits, in the foreground, until the clock reaches that time, then runs
+exactly like a manual recording)::
+
+    python -m rtl_recorder.main --frequency 92000000 --sample-rate 2400000 \\
+        --gain 30 --duration 1800 --satellite "KISS92-7PM" --start-time 19:00
+
 (The repo also ships a thin ``recorder.py`` wrapper at the project root so
 ``python recorder.py --simulate --duration 10`` works too.)
 """
@@ -20,9 +27,12 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import datetime
+from datetime import time as dt_time
 
 from .config import RecorderConfig
 from .recorder import RTLSDRRecorder
+from .scheduler import next_occurrence, wait_until
 from .states import RecordingStatus
 
 
@@ -49,7 +59,31 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          help="Skip the rtl_test device-availability check before recording")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--log-file", default=None, help="Optional path to also write logs to a file")
+
+    schedule_group = parser.add_mutually_exclusive_group()
+    schedule_group.add_argument(
+        "--start-time", type=_parse_hhmm, default=None, metavar="HH:MM",
+        help="Wait until this local clock time (today, or tomorrow if it's already passed today), then record",
+    )
+    schedule_group.add_argument(
+        "--start-at", type=_parse_iso_datetime, default=None, metavar="ISO8601",
+        help="Wait until this exact local date+time (e.g. 2026-08-24T19:00:00), then record",
+    )
     return parser
+
+
+def _parse_hhmm(value: str) -> dt_time:
+    try:
+        return datetime.strptime(value, "%H:%M").time()
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"--start-time must be HH:MM (24-hour), got {value!r}") from exc
+
+
+def _parse_iso_datetime(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"--start-at must be an ISO-8601 datetime, got {value!r}") from exc
 
 
 def configure_logging(level: str, log_file: str = None) -> None:
@@ -83,6 +117,27 @@ def main(argv=None) -> int:
             logger.error("RTL-SDR not available, aborting: %s", check.message)
             print(f"FAILED: RTL-SDR not available - {check.message}")
             return 1
+
+    target_dt = None
+    if args.start_time is not None:
+        target_dt = next_occurrence(args.start_time)
+    elif args.start_at is not None:
+        target_dt = args.start_at
+
+    if target_dt is not None:
+        wait_seconds = (target_dt - datetime.now()).total_seconds()
+        if wait_seconds <= 0:
+            logger.info("Scheduled start time %s has already arrived - recording immediately", target_dt.isoformat())
+        else:
+            logger.info("Recording scheduled for %s (waiting %.0f seconds)", target_dt.isoformat(), wait_seconds)
+            print(f"Waiting until {target_dt.isoformat()} ({wait_seconds:.0f}s from now)... press Ctrl+C to cancel.")
+        try:
+            wait_until(target_dt)
+        except KeyboardInterrupt:
+            logger.warning("Interrupted while waiting for scheduled start time")
+            print("CANCELLED: interrupted while waiting for scheduled start time")
+            return 130
+        logger.info("Scheduled start time reached - starting recording")
 
     try:
         result = recorder.record(

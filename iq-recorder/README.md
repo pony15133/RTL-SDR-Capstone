@@ -46,10 +46,12 @@ rtl_recorder/
     states.py          RecorderState / RecordingStatus enums
     exceptions.py       Exception hierarchy used internally
     utils.py             Executable discovery, expected file size, disk space
-    main.py               CLI entry point (manual + simulation modes)
+    scheduler.py           Wall-clock wait-until-a-time-of-day (--start-time/--start-at)
+    main.py                 CLI entry point (manual, simulation, and scheduled modes)
 recorder.py         Thin root-level wrapper: `python recorder.py ...`
 tests/
-    test_validation.py, test_filenames.py, test_metadata.py, test_recorder.py
+    test_validation.py, test_filenames.py, test_metadata.py, test_recorder.py,
+    test_scheduler.py, test_main_scheduling.py
     fixtures/fake_rtl_sdr.py   Fake rtl_sdr used to unit-test process control
     hardware/test_hardware_kiss92.py   Real-hardware-only tests (see §12)
 ```
@@ -144,27 +146,79 @@ Useful flags: `--gain auto` (or omit `--gain`) for AGC, `--output-dir`,
 `--device-index` (multi-dongle), `--skip-device-check`, `--log-level`,
 `--log-file`.
 
-## 10. Scheduled Recording (Phase 2)
+### Auto-capture at a fixed clock time (e.g. an FM station at 7pm)
 
-`record_pass()` (AOS/LOS + pre/post buffer recording) is part of the
-public interface but intentionally raises `NotImplementedError` in this
-Phase 1 delivery - manual recording and simulation had to be validated
-first, per the project's incremental development plan. Its intended
-signature:
+`--start-time HH:MM` (or `--start-at` for an exact date+time) waits until
+that moment, then runs a normal manual recording - no satellite pass
+prediction involved, just "record this frequency at this wall-clock
+time." This is the `rtl_recorder.scheduler` module (`next_occurrence()` /
+`wait_until()`), separate from and much simpler than the AOS/LOS pass
+scheduling in §10 below.
+
+```bash
+python recorder.py \
+    --frequency 92000000 \
+    --sample-rate 2400000 \
+    --gain 30 \
+    --duration 1800 \
+    --satellite "KISS92-7PM" \
+    --start-time 19:00
+```
+
+Run this any time before 7pm and it waits (printing how long, updating
+you via the log) until the clock reaches `19:00` local time - today, or
+tomorrow if `19:00` has already passed today - then records for
+`--duration` seconds exactly as a normal manual recording would. Ctrl+C
+during the wait cancels cleanly (`CANCELLED`, exit code 130) without
+starting `rtl_sdr` at all. `--start-at 2026-08-24T19:00:00` schedules an
+exact date+time instead of "the next occurrence of a time of day."
+
+This only works while the process keeps running in the foreground (or
+under something like `tmux`/`screen`/a background service) for however
+long the wait is - it isn't a persistent scheduler. For a capture that
+must survive a closed terminal or a machine restart, use your OS's own
+scheduler to launch the (non-scheduled) manual-recording command at the
+right time instead:
+
+- **Linux/macOS (`cron`)**: `0 19 * * * cd /path/to/iq-recorder && python3 recorder.py --frequency 92000000 --sample-rate 2400000 --gain 30 --duration 1800 --satellite KISS92-7PM`
+- **Windows (Task Scheduler)**: create a Basic Task, trigger "Daily" at 7:00 PM, action "Start a program" running `python.exe` with arguments `recorder.py --frequency 92000000 --sample-rate 2400000 --gain 30 --duration 1800 --satellite KISS92-7PM` and "Start in" set to the `iq-recorder` folder.
+
+Both approaches call the exact same CLI, so `--start-time`/`--start-at`
+and OS-level scheduling are interchangeable - use whichever fits how
+you're running this.
+
+## 10. Scheduled Recording from Satellite Passes
+
+`record_pass()` waits for a pass and records from AOS - `pre_buffer` to
+LOS + `post_buffer`. It joins a pass already in progress, refuses one
+that's already over, and can be cancelled while waiting
+(`cancel_recording()`). Pass times come from `rtl_recorder.passes`:
 
 ```python
+from rtl_recorder import RTLSDRRecorder, RecorderConfig
+from rtl_recorder.passes import GroundStation, get_tle, find_passes
+
+station = GroundStation(lat_deg=1.3521, lon_deg=103.8198, alt_m=15)
+tle = get_tle(25544)                       # CelesTrak, cached in tle_cache/ for 12 h
+next_pass = find_passes(tle, station, hours=24, min_max_elevation_deg=15)[0]
+
+recorder = RTLSDRRecorder(RecorderConfig())
 result = recorder.record_pass(
-    satellite_name="METEOR-M2-4",
-    norad_id=40069,
-    frequency_hz=137_900_000,
-    sample_rate=2_400_000,
-    gain=30,
-    aos=aos_datetime_utc,   # timezone-aware
-    los=los_datetime_utc,   # timezone-aware
-    pre_buffer=30,
-    post_buffer=30,
+    satellite_name="ISS", norad_id=25544,
+    frequency_hz=145_800_000, sample_rate=1_024_000, gain=30,
+    aos=next_pass.aos, los=next_pass.los, pre_buffer=30, post_buffer=30,
 )
 ```
+
+`pip install sgp4` for the standard SGP4 propagator. Without it, a
+built-in Kepler + J2 model is used, which is within about 7.5 km of the official
+SGP4 verification case, or roughly 1 s of pass timing. For the full loop
+(many satellites, detection, database, retention) use `auto_capture.py` at
+the repo root.
+
+**Cross-platform:** the RTL-SDR tools are found on PATH, in the usual
+install folders for Windows / macOS / Linux, or in `$RTL_SDR_HOME`. Run
+`python -m rtl_recorder.doctor` to check a machine.
 
 ## 11. Python Interface
 
