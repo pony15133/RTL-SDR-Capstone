@@ -48,7 +48,8 @@ def _settings(config, *extra):
 def test_config_is_loaded(config):
     s = _settings(config)
     assert s.station.name == "Singapore campus"
-    assert [t.norad_id for t in s.targets] == [25544, 57166, 59051]
+    assert [t.norad_id for t in s.targets] == [57166, 59051, 25544]
+    assert s.targets[0].waterfall_span_hz == 160000
     assert s.targets[0].sample_rate == 1_024_000
     assert s.retention == "archive-negatives"
 
@@ -131,7 +132,7 @@ def test_demo_runs_the_whole_chain(tmp_path, config, capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert "SUCCESS, db row 1" in out
-    assert json.loads((tmp_path / "rec" / "schedule.json").read_text())[0]["satellite"] == "ISS"
+    assert json.loads((tmp_path / "rec" / "schedule.json").read_text())[0]["satellite"] == "METEOR-M2-3"
     assert list((tmp_path / "res").glob("*_spectrogram.png"))
 
 
@@ -152,3 +153,22 @@ def test_position_history_and_status_log_are_stored(tmp_path, config, tle_file):
     assert track[0]["norad_id"] == pp.target.norad_id
     states = [(e["component"], e["state"]) for e in list_status(tmp_path / "c.sqlite3")]
     assert ("scheduler", "WAITING") in states and ("recorder", "SUCCESS") in states and ("pipeline", "DONE") in states
+
+
+def test_offset_tuning_doppler_and_waterfall_are_recorded(tmp_path, config, tle_file):
+    from database import get_result
+
+    s = _settings(config, "--simulate", "--db", str(tmp_path / "c.sqlite3"), "--results-dir", str(tmp_path / "res"))
+    s.pre_buffer = s.post_buffer = 0.2
+    now = datetime.now(timezone.utc)
+    pp = _pp("ISS", now + timedelta(seconds=0.5), 1 / 60, 40)
+    pp.tle = load_tle_file(tle_file)
+    summary = auto_capture.run_plan([pp], s)[0]
+
+    row = get_result(tmp_path / "c.sqlite3", summary["db_row"])
+    assert row["target_frequency_hz"] == pp.target.frequency_hz
+    assert row["frequency_hz"] == pp.target.frequency_hz - 150_000      # tuned below: DC spike away from signal
+    assert row["doppler_corrected"] == 1 and row["doppler_max_hz"] > 0
+    assert summary["doppler_corrected"] is True
+    assert row["waterfall_image_path"] and Path(row["waterfall_image_path"]).exists()
+    assert summary["waterfall_ml"] in ("MODEL_NOT_AVAILABLE", "AVAILABLE")

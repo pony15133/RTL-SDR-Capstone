@@ -246,3 +246,45 @@ def test_iq_reader_close_releases_the_map(tmp_path):
         samples = reader[0:100]
     assert samples.size == 100 and reader._raw is None
     path.unlink()  # would raise PermissionError on Windows if the map were still open
+
+
+def test_visualize_doppler_view_on_simulated_pass(tmp_path):
+    """visualize.py --doppler straightens a Doppler-shifted signal (sidecar-driven)."""
+    import json
+    import subprocess
+    from datetime import timedelta
+
+    from doppler import doppler_curve_from_pass
+    from rtl_recorder.passes import TLE, GroundStation, find_passes, make_propagator
+
+    def fix(line):
+        s = sum(int(c) if c.isdigit() else (1 if c == "-" else 0) for c in line[:68])
+        return line[:68] + str(s % 10)
+
+    l1 = fix("1 25544U 98067A   24001.50000000  .00016717  00000-0  10270-3 0  9005")
+    l2 = fix("2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537")
+    (tmp_path / "iss.tle").write_text(f"ISS\n{l1}\n{l2}\n")
+    tle, st = TLE("ISS", l1, l2), GroundStation(1.3521, 103.8198, 15)
+    p = max(find_passes(tle, st, start=tle.epoch, hours=24), key=lambda x: x.max_elevation_deg)
+    start, dur, fs, target = p.max_elevation_time - timedelta(seconds=20), 40, 200_000, 437.8e6
+    curve = doppler_curve_from_pass(make_propagator(tle), st, target, start, dur)
+    n = fs * dur
+    t = np.arange(n) / fs
+    x = 0.2 * np.exp(1j * 2 * np.pi * np.cumsum(60_000 + curve(t)) / fs)
+    x = x + 0.08 * (np.random.default_rng(0).standard_normal(n) + 1j * np.random.default_rng(1).standard_normal(n))
+    u = np.empty(2 * n, np.uint8)
+    u[0::2] = np.clip(x.real * 127.5 + 127.5, 0, 255)
+    u[1::2] = np.clip(x.imag * 127.5 + 127.5, 0, 255)
+    iq = tmp_path / "ISS_rec.iq"
+    u.tofile(iq)
+    iq.with_suffix(".json").write_text(json.dumps({
+        "norad_id": 25544, "frequency_hz": int(target - 60_000), "sample_rate": fs,
+        "actual_recording_start": start.isoformat(), "target_frequency_hz": int(target)}))
+    root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run([sys.executable, str(root / "sdr-doppler-prototype" / "src" / "visualize.py"),
+                           "--input", str(iq), "--output", str(tmp_path / "raw.png"), "--doppler",
+                           "--tle-file", str(tmp_path / "iss.tle"), "--lat", "1.3521", "--lon", "103.8198"],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert (tmp_path / "ISS_rec_doppler_corrected.png").exists()
+    assert curve.max_abs_hz > 3000  # a real pass-sized Doppler swing was corrected

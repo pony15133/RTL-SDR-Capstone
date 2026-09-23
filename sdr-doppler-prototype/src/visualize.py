@@ -121,7 +121,54 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ffts-per-row", type=int, default=DEFAULT_FFTS_PER_ROW)
     p.add_argument("--start-seconds", type=float, default=0.0)
     p.add_argument("--duration-seconds", type=float, default=None)
+    d = p.add_argument_group("Doppler-corrected view (+/-24 kHz around the downlink, like SatNOGS)")
+    d.add_argument("--doppler", action="store_true", help="Also draw the Doppler-corrected standard waterfall")
+    d.add_argument("--target-freq", type=float, default=None, help="Downlink Hz (default: from recorder sidecar)")
+    d.add_argument("--norad", type=int, default=None, help="NORAD id (default: from recorder sidecar)")
+    d.add_argument("--start-time", default=None, help="Recording start, ISO UTC (default: from sidecar)")
+    d.add_argument("--tle-file", default=None, help="TLE file (default: CelesTrak, cached)")
+    d.add_argument("--lat", type=float, default=None)
+    d.add_argument("--lon", type=float, default=None)
+    d.add_argument("--alt", type=float, default=0.0)
     return p
+
+
+def doppler_view(args, info, reader) -> Path:
+    """Standard Doppler-corrected waterfall of the recording, saved next to the main image."""
+    import json
+    from datetime import datetime
+
+    from doppler import doppler_curve_from_pass, standard_waterfall
+
+    sidecar = {}
+    js = args.input.with_suffix(".json")
+    if js.exists():
+        sidecar = json.loads(js.read_text(encoding="utf-8"))
+    norad = args.norad or sidecar.get("norad_id")
+    start = args.start_time or sidecar.get("actual_recording_start")
+    target = args.target_freq or sidecar.get("target_frequency_hz") or info.center_freq_hz
+    if not (norad and start and target and args.lat is not None and args.lon is not None):
+        raise SystemExit("FAILED: --doppler needs NORAD id, start time and target frequency (or a recorder "
+                         "sidecar with them) plus the station --lat/--lon.")
+    repo = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(repo / "iq-recorder"))
+    from rtl_recorder.passes import GroundStation, get_tle, load_tle_file, make_propagator
+
+    tle = load_tle_file(args.tle_file, int(norad)) if args.tle_file else get_tle(int(norad), cache_dir=repo / "tle_cache")
+    station = GroundStation(args.lat, args.lon, args.alt)
+    duration = len(reader) / info.sample_rate_hz
+    curve = doppler_curve_from_pass(make_propagator(tle), station, float(target),
+                                    datetime.fromisoformat(str(start)), duration)
+    wf = standard_waterfall(reader, info.sample_rate_hz, offset_hz=float(target) - float(info.center_freq_hz or target),
+                            doppler=curve)
+    out = (args.output or Path("waterfall.png")).with_name(f"{args.input.stem}_doppler_corrected.png")
+    sys.path.insert(0, str(repo))
+    from pipeline import save_waterfall_image
+
+    save_waterfall_image(wf, out, float(target), curve)
+    print(f"doppler_max_hz={curve.max_abs_hz:.0f}")
+    print(f"doppler_corrected_image={out}")
+    return out
 
 
 def run(args) -> Path:
@@ -133,6 +180,8 @@ def run(args) -> Path:
         wf = compute_waterfall(reader, info.sample_rate_hz, center_freq_hz=info.center_freq_hz, nfft=args.nfft,
                                rows=args.rows, ffts_per_row=args.ffts_per_row,
                                start_seconds=args.start_seconds, duration_seconds=args.duration_seconds)
+        if args.doppler:
+            doppler_view(args, info, reader)
     output = args.output or Path(__file__).resolve().parents[1] / "data" / "results" / f"waterfall_{args.input.stem}.png"
     centre = f"{info.center_freq_hz / 1e6:.4f} MHz" if info.center_freq_hz else "centre unknown"
     title = (f"{args.input.name}\n{info.iq_format}, {info.sample_rate_hz / 1e6:g} Msps, {centre}, "

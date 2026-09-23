@@ -9,3 +9,5 @@ venv/
 models/*.joblib
 models/*.json
 !models/.gitkeep
+models/*.csv
+models/*.png
