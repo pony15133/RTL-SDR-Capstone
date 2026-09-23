@@ -2,3 +2,21 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+
+# Local virtual environments (any name) - never commit these
+venv/
+.venv*/
+venv*/
+env/
+path/
+
+# Large raw captures - share via SSD/OneDrive, not git
+sdr-doppler-prototype/data/raw/*
+!sdr-doppler-prototype/data/raw/sample.npy
+!sdr-doppler-prototype/data/raw/README.md
+*.sigmf-data
+
+# Generated detection output (DB, summaries, spectrograms, session folders)
+sdr-doppler-prototype/data/results/*
+!sdr-doppler-prototype/data/results/README.md
+!sdr-doppler-prototype/data/results/.gitkeep
