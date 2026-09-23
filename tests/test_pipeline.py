@@ -103,3 +103,103 @@ def test_capture_and_detect_simulated_end_to_end(tmp_path):
     with sqlite3.connect(db_path) as conn:
         count = conn.execute("SELECT COUNT(*) FROM capture_results").fetchone()[0]
     assert count == 1
+
+
+# --------------------------------------------------------------------------- #
+# Recorder metadata in the database + IQ retention
+# --------------------------------------------------------------------------- #
+
+from types import SimpleNamespace  # noqa: E402
+
+import retention  # noqa: E402
+from database import get_result  # noqa: E402
+
+
+def _simulated(tmp_path, **kwargs):
+    return pipeline.capture_and_detect(
+        satellite_name="TEST-SAT", frequency_hz=137_000_000, sample_rate=240_000, gain=20, duration=1,
+        norad_id=12345,
+        recorder_config=RecorderConfig(simulate=True, output_dir=str(tmp_path / "recordings")),
+        db_path=tmp_path / "captures.sqlite3", detection_output_dir=tmp_path / "results", no_ml=True, **kwargs,
+    )
+
+
+def test_recorder_metadata_lands_in_database(tmp_path):
+    pr = _simulated(tmp_path)
+    row = get_result(tmp_path / "captures.sqlite3", pr.result_id)
+
+    assert row["satellite_name"] == "TEST-SAT"
+    assert row["norad_id"] == 12345
+    assert row["frequency_hz"] == 137_000_000
+    assert row["sample_rate"] == 240_000
+    assert row["gain"] == 20
+    assert row["recording_status"] == "SUCCESS"
+    assert row["simulated"] == 1
+    assert row["actual_recording_start"] and row["actual_recording_stop"]
+    assert row["output_file_size"] > 0
+    assert row["metadata_file_path"].endswith(".json")
+    assert row["processing_status"] == "DETECTED"
+    assert row["decision_source"] == "rule"  # no ML model in this test
+    assert row["iq_retention"] == "kept (policy keep-all)"
+    assert Path(row["raw_iq_file_path"]).exists()
+
+
+def test_failed_recording_is_logged_as_a_row(tmp_path):
+    result = RecordingResult(status=RecordingStatus.DEVICE_BUSY, error_message="usb_claim_interface error")
+    db = tmp_path / "captures.sqlite3"
+    pr = pipeline.process_recording(result, frequency_hz=137e6, sample_rate_hz=240e3, db_path=db, log_failures=True)
+
+    assert pr.success is False and pr.result_id is not None
+    row = get_result(db, pr.result_id)
+    assert row["recording_status"] == "DEVICE_BUSY"
+    assert row["processing_status"] == "NOT_PROCESSED_RECORDING_DEVICE_BUSY"
+    assert "usb_claim_interface" in row["notes"]
+
+
+def test_archive_policy_moves_negative_recording_and_updates_row(tmp_path):
+    pr = _simulated(tmp_path, retention_policy="archive-negatives")  # random bytes -> no candidate
+    row = get_result(tmp_path / "captures.sqlite3", pr.result_id)
+
+    assert pr.detected is False
+    assert row["iq_retention"] == "archived"
+    assert Path(row["raw_iq_file_path"]).parent.name == "rejected"
+    assert Path(row["raw_iq_file_path"]).exists()
+    assert not Path(pr.recording.output_file).exists()
+    # The JSON sidecar moves with it, so the archived recording stays self-describing.
+    assert Path(row["raw_iq_file_path"]).with_suffix(".json").exists()
+
+
+def test_delete_policy_removes_negative_recording(tmp_path):
+    pr = _simulated(tmp_path, retention_policy="delete-negatives")
+    row = get_result(tmp_path / "captures.sqlite3", pr.result_id)
+    assert row["iq_retention"] == "deleted"
+    assert row["raw_iq_file_path"] is None
+    assert not Path(pr.recording.output_file).exists()
+
+
+def test_ml_confidence_drives_the_decision_when_available():
+    rule = SimpleNamespace(detected=False, confidence_score=0.1)
+    ml_hi = SimpleNamespace(ml_confidence_score=0.9)
+    ml_lo = SimpleNamespace(ml_confidence_score=0.2)
+    assert retention.decide(ml_detection=ml_hi, rule_detection=rule).keep is True
+    assert retention.decide(ml_detection=ml_hi, rule_detection=rule).source == "ml"
+    assert retention.decide(ml_detection=ml_lo, rule_detection=rule, threshold=0.5).keep is False
+    assert retention.decide(ml_detection=ml_lo, rule_detection=rule, threshold=0.1).keep is True
+    # No ML prediction (MODEL_NOT_AVAILABLE) -> fall back to the rule detector
+    no_pred = SimpleNamespace(ml_confidence_score=None)
+    d = retention.decide(ml_detection=no_pred, rule_detection=SimpleNamespace(detected=True, confidence_score=0.8))
+    assert (d.keep, d.source) == (True, "rule")
+
+
+def test_positive_recording_is_kept_under_any_policy(tmp_path):
+    iq = tmp_path / "rec.iq"
+    iq.write_bytes(bytes([128]) * 1000)
+    keep = retention.RetentionDecision(True, "ml", 0.9, "confident")
+    for policy in retention.POLICIES:
+        out = retention.apply(keep, iq, policy=policy)
+        assert out.final_path == str(iq) and iq.exists()
+
+
+def test_unknown_policy_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        retention.apply(retention.RetentionDecision(False, "rule", 0.0, ""), tmp_path / "x.iq", policy="shred")

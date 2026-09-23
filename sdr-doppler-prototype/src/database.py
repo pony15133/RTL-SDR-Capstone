@@ -56,6 +56,19 @@ CAPTURE_COLUMNS = {
     "metadata_file_path": "TEXT",
 }
 
+#: Added with the automatic capture loop: what happened to the raw IQ file
+#: after detection, and why (see src/retention.py). `processing_status` says
+#: whether detection ran at all - failed/busy recordings are logged too, so
+#: every recorder run leaves a row.
+RETENTION_COLUMNS = {
+    "processing_status": "TEXT",
+    "iq_retention": "TEXT",
+    "retention_reason": "TEXT",
+    "decision_source": "TEXT",
+    "decision_score": "REAL",
+}
+
+
 def _existing_columns(conn: sqlite3.Connection, table: str) -> set:
     cur = conn.execute(f"PRAGMA table_info({table})")
     return {row[1] for row in cur.fetchall()}
@@ -93,6 +106,10 @@ def init_db(db_path: Path) -> None:
         conn.execute(SCHEMA)
         _migrate_ml_columns(conn)
         _migrate_capture_columns(conn)
+        existing = _existing_columns(conn, "capture_results")
+        for column, sql_type in RETENTION_COLUMNS.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE capture_results ADD COLUMN {column} {sql_type}")
         conn.commit()
 
 
@@ -118,3 +135,22 @@ def get_result(db_path: Path, result_id: int) -> dict:
         cur = conn.execute("SELECT * FROM capture_results WHERE id = ?", (result_id,))
         row = cur.fetchone()
         return dict(row) if row else None
+
+
+def update_result(db_path: Path, result_id: int, changes: dict) -> None:
+    """Update columns of one existing row (e.g. after the IQ file was archived)."""
+    if not changes:
+        return
+    assignments = ", ".join(f"{column} = ?" for column in changes)
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.execute(f"UPDATE capture_results SET {assignments} WHERE id = ?", [*changes.values(), result_id])
+        conn.commit()
+
+
+def list_results(db_path: Path, limit: int = 50) -> list:
+    """Most recent rows first - used by the capture-history view."""
+    init_db(db_path)
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM capture_results ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()
+        return [dict(r) for r in rows]
