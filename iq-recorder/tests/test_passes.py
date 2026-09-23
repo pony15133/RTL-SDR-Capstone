@@ -120,11 +120,12 @@ class TestPropagation:
         assert make_propagator(ISS_LIKE).name in ("sgp4", "kepler-j2")
 
 
-class TestFindPasses:
-    @pytest.fixture(scope="class")
-    def passes(self):
-        return find_passes(ISS_LIKE, SINGAPORE, start=ISS_LIKE.epoch, hours=24, min_max_elevation_deg=10)
+@pytest.fixture(scope="module")
+def passes():
+    return find_passes(ISS_LIKE, SINGAPORE, start=ISS_LIKE.epoch, hours=24, min_max_elevation_deg=10)
 
+
+class TestFindPasses:
     def test_finds_a_few_leo_passes_per_day(self, passes):
         assert 2 <= len(passes) <= 8
 

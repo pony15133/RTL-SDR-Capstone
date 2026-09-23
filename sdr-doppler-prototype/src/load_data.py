@@ -40,7 +40,8 @@ def load_input(path: Path, binary_dtype: str = "auto") -> LoadedData:
         if info.iq_format == "complex64":
             values = np.memmap(path, dtype=np.complex64, mode="r")
         else:
-            values = IQReader(path, info.iq_format).read_all()
+            with IQReader(path, info.iq_format) as reader:
+                values = reader.read_all()
         return LoadedData(path=path, kind="iq", values=values)
 
     raise ValueError(f"Unsupported input type: {path.suffix}")

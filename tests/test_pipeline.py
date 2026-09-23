@@ -203,3 +203,46 @@ def test_positive_recording_is_kept_under_any_policy(tmp_path):
 def test_unknown_policy_rejected(tmp_path):
     with pytest.raises(ValueError):
         retention.apply(retention.RetentionDecision(False, "rule", 0.0, ""), tmp_path / "x.iq", policy="shred")
+
+
+def _open_handles_to(path: Path) -> int:
+    """How many file descriptors this process holds on ``path`` (Linux only)."""
+    fd_dir = Path("/proc/self/fd")
+    target = str(path.resolve())
+    count = 0
+    for fd in fd_dir.iterdir():
+        try:
+            if os.readlink(fd) == target:
+                count += 1
+        except OSError:
+            pass
+    return count
+
+
+import os  # noqa: E402
+
+
+@pytest.mark.skipif(not Path("/proc/self/fd").exists(), reason="needs /proc to inspect open files")
+def test_recording_is_not_held_open_after_detection(tmp_path):
+    """Regression for Windows WinError 32: the memory map must be released
+    before retention tries to move/delete the recording."""
+    iq_path = tmp_path / "capture.iq"
+    _write_synthetic_iq(iq_path, sample_rate_hz=240_000, duration_s=0.5)
+    result = RecordingResult(status=RecordingStatus.SUCCESS, output_file=str(iq_path))
+    pipeline.process_recording(result, frequency_hz=137e6, sample_rate_hz=240e3,
+                               db_path=tmp_path / "c.sqlite3", output_dir=tmp_path, no_ml=True)
+    import gc
+
+    gc.collect()
+    assert _open_handles_to(iq_path) == 0
+
+
+def test_iq_reader_close_releases_the_map(tmp_path):
+    from iq_io import IQReader
+
+    path = tmp_path / "x.iq"
+    path.write_bytes(bytes(range(256)) * 8)
+    with IQReader(path, "cu8") as reader:
+        samples = reader[0:100]
+    assert samples.size == 100 and reader._raw is None
+    path.unlink()  # would raise PermissionError on Windows if the map were still open

@@ -15,7 +15,7 @@ import subprocess
 from dataclasses import dataclass
 
 from .exceptions import ExecutableNotFoundError
-from .utils import find_executable
+from .utils import find_executable, tool_command
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ def check_device(rtl_test_path=None, timeout: float = 10.0) -> DeviceCheckResult
         return DeviceCheckResult(False, str(exc), "")
 
     try:
-        proc = subprocess.run([exe, "-t"], capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run([*tool_command(exe), "-t"], capture_output=True, text=True, timeout=timeout)
         output = (proc.stdout or "") + (proc.stderr or "")
         returncode = proc.returncode
     except subprocess.TimeoutExpired:

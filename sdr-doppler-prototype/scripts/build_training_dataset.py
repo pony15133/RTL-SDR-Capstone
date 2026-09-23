@@ -122,9 +122,10 @@ def load_labels_manifest(path: Optional[Path]) -> Dict[str, int]:
 def resolve_label(path: Path, input_dir: Path, labels_map: Dict[str, int], forced_label: Optional[int]) -> Optional[int]:
     """Priority: manifest > folder-name convention > forced --label > (caller decides interactive/skip)."""
     rel_path = path.relative_to(input_dir)
-    rel_key = str(rel_path)
-    if rel_key in labels_map:
-        return labels_map[rel_key]
+    rel_key = rel_path.as_posix()  # "negative/a.bin" on Windows too, not "negative\\a.bin"
+    normalised = {str(k).replace("\\", "/"): v for k, v in labels_map.items()}
+    if rel_key in normalised:
+        return normalised[rel_key]
     if path.name in labels_map:
         return labels_map[path.name]
 
