@@ -20,3 +20,6 @@ sdr-doppler-prototype/data/raw/*
 sdr-doppler-prototype/data/results/*
 !sdr-doppler-prototype/data/results/README.md
 !sdr-doppler-prototype/data/results/.gitkeep
+
+# Default output of pipeline.py / recorder when run from the repo root
+recordings/
