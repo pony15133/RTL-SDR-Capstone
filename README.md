@@ -109,3 +109,33 @@ Table: `capture_results`
 ## Notes
 
 This detector is a rule-based first pass. It is useful for sorting captures into "worth inspecting" and "probably noise" groups, not for final scientific classification.
+
+## Connecting Auto Capture to the Database
+
+`iq-recorder` (the RTL-SDR recording manager) and this detection pipeline
+used to be completely disconnected: the recorder wrote a `.iq` file +
+JSON metadata sidecar and stopped, and detection only ran manually
+against a file you pointed `src/main.py` at by hand - nothing ever wrote
+an auto-captured recording into `capture_results`.
+
+`pipeline.py` at the repo root connects them: it drives one recording
+through `rtl_recorder.RTLSDRRecorder`, then feeds the resulting IQ file
+through the same spectrogram -> feature extraction -> rule/ML detection
+pipeline as `src/main.py`, and inserts the result into this SQLite
+database.
+
+From the repo root:
+
+```bash
+python pipeline.py \
+  --satellite METEOR-M2-4 \
+  --frequency 137900000 \
+  --sample-rate 2400000 \
+  --duration 60 \
+  --gain 30
+```
+
+Add `--simulate` to exercise the full capture -> detect -> database path
+without RTL-SDR hardware attached. `capture_and_detect()` /
+`process_recording()` in `pipeline.py` are also importable directly for a
+future scheduler to call after each pass.
