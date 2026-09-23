@@ -234,8 +234,62 @@ def format_schedule(plan: List[PlannedPass], station: GroundStation) -> str:
 # Execution
 # --------------------------------------------------------------------------- #
 
+class LiveStatus:
+    """Writes <output_dir>/live_status.json every few seconds for dashboard.py:
+    what the station is doing right now and what's next."""
+
+    def __init__(self, settings: Settings, recorder: RTLSDRRecorder, interval: float = 3.0):
+        self.path = Path(settings.output_dir) / "live_status.json"
+        self.settings, self.recorder, self.interval = settings, recorder, interval
+        self.phase = "starting"
+        self.current: Optional[PlannedPass] = None
+        self.plan: List[PlannedPass] = []
+        self.last_result: Optional[dict] = None
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+
+    def start(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._thread.start()
+        return self
+
+    def stop(self):
+        self.phase = "stopped"
+        self.write()
+        self._stop.set()
+
+    def set(self, phase: str, current: Optional[PlannedPass] = None):
+        self.phase, self.current = phase, current
+        self.write()
+
+    def write(self):
+        cur = self.current.as_dict() if self.current else None
+        data = {
+            "updated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "phase": self.phase,
+            "recorder_state": self.recorder.check_recording_status().value,
+            "simulate": self.settings.simulate,
+            "current": cur,
+            "upcoming": [pp.as_dict() for pp in self.plan if pp.pass_.los > datetime.now(timezone.utc)][:12],
+            "last_result": self.last_result,
+            "station": {"name": self.settings.station.name, "lat_deg": self.settings.station.lat_deg,
+                        "lon_deg": self.settings.station.lon_deg, "alt_m": self.settings.station.alt_m},
+        }
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=1, default=str), encoding="utf-8")
+        tmp.replace(self.path)  # atomic, so the dashboard never reads half a file
+
+    def _loop(self):
+        while not self._stop.wait(self.interval):
+            try:
+                self.write()
+            except OSError:
+                pass
+
+
 def run_plan(plan: List[PlannedPass], settings: Settings, *, stop_event: Optional[threading.Event] = None,
-             recorder: Optional[RTLSDRRecorder] = None, record_kwargs: Optional[dict] = None) -> List[dict]:
+             recorder: Optional[RTLSDRRecorder] = None, record_kwargs: Optional[dict] = None,
+             live: Optional[LiveStatus] = None) -> List[dict]:
     """Record and process each non-skipped pass in order. Returns one summary
     dict per attempted pass (also what gets printed / saved)."""
     stop_event = stop_event or threading.Event()
@@ -254,6 +308,8 @@ def run_plan(plan: List[PlannedPass], settings: Settings, *, stop_event: Optiona
         p, t = pp.pass_, pp.target
         logger.info("Next: %s", p.describe())
         log_status(db_path, "scheduler", "WAITING", p.describe())
+        if live:
+            live.set("waiting for pass", pp)
         # Offset tuning: record a little below the downlink so the RTL-SDR's DC spike
         # (always at the tuned centre) can't be mistaken for the satellite.
         tuned_hz = int(t.frequency_hz - settings.tuning_offset_hz)
@@ -262,6 +318,8 @@ def run_plan(plan: List[PlannedPass], settings: Settings, *, stop_event: Optiona
             gain=t.gain, aos=p.aos, los=p.los, pre_buffer=settings.pre_buffer, post_buffer=settings.post_buffer,
             **(record_kwargs or {}),
         )
+        if live:
+            live.set("processing", pp)
         doppler = None
         if pp.tle is not None and result.success and result.actual_recording_start:
             try:
@@ -305,6 +363,9 @@ def run_plan(plan: List[PlannedPass], settings: Settings, *, stop_event: Optiona
             "waterfall_confidence": pr.wf_confidence_score, "waterfall_image": pr.waterfall_image,
         }
         summaries.append(summary)
+        if live:
+            live.last_result = summary
+            live.set("idle")
         logger.info("Done: %s status=%s db_row=%s retention=%s", t.name, result.status.value, pr.result_id,
                     pr.retention_action)
     return summaries
@@ -360,15 +421,20 @@ def main(argv=None) -> int:
     stop_event_watch.start()
 
     all_summaries = []
+    live = None
     while not stop_event.is_set():
         plan = demo_plan(settings) if args.demo else plan_passes(settings)
         print(format_schedule(plan, settings.station))
         if args.list_only:
             return 0
+        if live is None:
+            live = LiveStatus(settings, recorder).start()
+        live.plan = plan
+        live.set("planned")
         schedule_file = Path(settings.output_dir) / "schedule.json"
         schedule_file.parent.mkdir(parents=True, exist_ok=True)
         schedule_file.write_text(json.dumps([pp.as_dict() for pp in plan], indent=2), encoding="utf-8")
-        summaries = run_plan(plan, settings, stop_event=stop_event, recorder=recorder)
+        summaries = run_plan(plan, settings, stop_event=stop_event, recorder=recorder, live=live)
         all_summaries += summaries
         for s in summaries:
             print(f"- {s['satellite']} {s['aos']}: {s['recording_status']}, db row {s['db_row']}, "
@@ -379,6 +445,8 @@ def main(argv=None) -> int:
             break
         if not any(pp.skipped_reason is None for pp in plan):
             stop_event.wait(3600)  # nothing to record in this window - check again in an hour
+    if live is not None:
+        live.stop()
     return 0 if all(s["recording_status"] == "SUCCESS" for s in all_summaries) else 1
 
 
