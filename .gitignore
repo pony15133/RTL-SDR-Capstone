@@ -25,8 +25,8 @@ sdr-doppler-prototype/data/results/*
 recordings/
 
 # Client data drop (multi-GB IQ recordings) - never commit
-Data/
-Data.zip
+/Data/
+/Data.zip
 *.sigmf-data
 *.raw
 *.wav

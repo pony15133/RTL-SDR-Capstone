@@ -205,3 +205,32 @@ and `drift_rate_hz_per_second` would then be in "time-bin units", not
 seconds. `extract_features()` records this on `FeatureVector.time_axis_is_synthetic`;
 avoid mixing rows derived from matrix-only input into a dataset trained
 primarily on raw-IQ-derived rows without accounting for this.
+
+## Real dataset: `rsp03_camras_features.csv`
+
+111 one-second windows labelled from the client's CAMRAS RSP-03 snapshots
+(`Data/Satellite_Data_snapshots/RSP-03_*.raw`, ci16, 1 Msps, 436.95 MHz,
+Dwingeloo 25 m dish tracking the satellite). 49 are signal (beacon burst present) and 62 are noise.
+
+- **Labels** come from `scripts/label_known_carrier.py`. It measures SNR in a
+  5 kHz band around the known carrier and keeps only clear windows: on for
+  at least 30% of frames means 1, at most 10% means 0, and borderline
+  windows are dropped. They were checked by eye against waterfall images.
+- **Recording groups:** `RSP-03_01` and `RSP-03_2` are two channels of the
+  same moment (0.95 correlation), so both use `recording_id=rsp03_t1`. That
+  leaves **4 independent recordings**, all from **one satellite pass at one
+  station**. Treat any metric from this set as a first sanity check, not a
+  generalisation claim.
+- About 75% of the ci16 samples are clipped at +/-32767 in these snapshots.
+  The bursts are still clearly visible.
+
+Rebuild it:
+
+```bash
+for s in "01 rsp03_t1" "2 rsp03_t1" "3 rsp03_t3" "4 rsp03_t4" "5 rsp03_t5"; do set -- $s
+  python scripts/label_known_carrier.py --input ../Data/Satellite_Data_snapshots/RSP-03_$1.raw \
+    --dtype ci16 --sample-rate 1000000 --center-freq 436950000 \
+    --recording-id $2 --dataset data/training/rsp03_camras_features.csv
+done
+python train_model.py --dataset data/training/rsp03_camras_features.csv --output models/rsp03_rf.joblib
+```
