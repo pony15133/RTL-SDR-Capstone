@@ -322,6 +322,7 @@ def _build_parser():
         description="Record IQ samples with iq-recorder and run the result through the "
         "sdr-doppler-prototype detection pipeline into its SQLite database."
     )
+    parser.add_argument("--doctor", action="store_true", help="Only check this computer's RTL-SDR setup (tools, device, packages) and exit")
     parser.add_argument("--satellite", required=True, help="Satellite/target name")
     parser.add_argument("--frequency", required=True, type=float, help="Center frequency in Hz")
     parser.add_argument("--sample-rate", required=True, type=float, help="Sample rate in Hz")
@@ -343,6 +344,11 @@ def _build_parser():
 
 
 def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if "--doctor" in argv:
+        from rtl_recorder.doctor import main as doctor_main
+
+        return doctor_main([a for a in argv if a != "--doctor"])
     args = _build_parser().parse_args(argv)
     pr = capture_and_detect(
         satellite_name=args.satellite,
