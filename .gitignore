@@ -23,3 +23,10 @@ sdr-doppler-prototype/data/results/*
 
 # Default output of pipeline.py / recorder when run from the repo root
 recordings/
+
+# Client data drop (multi-GB IQ recordings) - never commit
+Data/
+Data.zip
+*.sigmf-data
+*.raw
+*.wav
