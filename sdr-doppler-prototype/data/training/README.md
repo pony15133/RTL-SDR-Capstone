@@ -42,7 +42,7 @@ same way training and inference will compute them.
 
 **`synthetic_example.csv` in this directory is entirely synthetic** -
 generated with a fixed random seed to exercise the training pipeline
-(dataset validation, train/test split, `RandomForestClassifier` training,
+(dataset validation, grouped train/validation/test split, `RandomForestClassifier` training,
 evaluation, feature importance, model save/load). It is marked
 `is_synthetic=1` on every row.
 

@@ -134,10 +134,13 @@ python train_model.py --dataset data/training/features.csv --output models/rando
 
 - Validates required columns and values before doing anything else.
 - Refuses to train on any row marked `is_synthetic=1` unless `--allow-synthetic` is passed; a model trained that way is permanently marked `trained_on_synthetic_data: true` in its metadata.
-- Stratified train/test split (falls back to unstratified with a warning if the dataset is too small/imbalanced for it).
+- **Train / validation / test split (default 70 / 15 / 15), grouped by recording.** Rows are grouped by `recording_id`, or by `source_file` with the `#samples=a-b` window suffix removed, so every chunk of one capture lands in the same split. Groups are stratified by label. Change the sizes with `--val-size` / `--test-size`.
+- **Hyperparameters are chosen on the validation set only.** A small grid (`n_estimators`, `max_depth`, `min_samples_leaf`) is scored by validation F1. Pass `--no-tune` to use `--n-estimators` / `--max-depth` directly.
+- **The chosen model is refit on train + validation, then scored once on the test set.** The test set is never used for tuning or cross-validation, so **the test metrics are the ones to report.**
+- Cross-validation runs on train + validation only, grouped by recording where possible.
 - Fixed `--random-state` (default 42) for reproducible experiments.
-- Prints accuracy, precision, recall, F1, confusion matrix, ROC-AUC where computable, and cross-validation (or a stated reason it was skipped).
-- Saves the model + a metadata sidecar (model type/version, timestamp, feature schema, RF params, sample counts, label distribution, evaluation metrics) and a feature-importance CSV (`--save-importance-chart` for a PNG too).
+- Prints validation and test metrics (accuracy, precision, recall, F1, ROC-AUC), the test confusion matrix, and cross-validation (or a stated reason it was skipped).
+- Saves the model, a metadata sidecar (split sizes per set, selected hyperparameters, full search results, validation and test metrics, feature importance), a feature-importance CSV, and `<model>_splits.csv` listing which split every row went to (`--save-importance-chart` for a PNG too).
 
 Try it with the bundled synthetic demo dataset (pipeline verification only - do not read its metrics as real accuracy):
 
@@ -208,5 +211,5 @@ An existing database created before the ML component is migrated automatically a
 - The Random Forest classifier is **implemented but not validated** - no model has been trained on real, independently-verified labelled captures yet.
 - `occupied_bandwidth_hz` is a threshold-crossing bandwidth estimate, not a formal 99%-power occupied bandwidth measurement.
 - `signal_duration_seconds` and `drift_rate_hz_per_second` are only in real seconds for raw-IQ input; a bare spectrogram-matrix input (`.txt`/`.csv`) has no real time axis, and `FeatureVector.time_axis_is_synthetic` flags this.
-- Cross-validation and train/test splitting are statistically unreliable on very small datasets; `src/ml/train.py` degrades gracefully (skips/falls back with a stated reason) rather than reporting misleadingly precise numbers.
+- Cross-validation and the train/validation/test split are statistically unreliable on very small datasets. `src/ml/train.py` degrades gracefully, skipping or falling back with a stated reason, rather than reporting misleadingly precise numbers. A three-way split needs at least 3 recordings. If grouping finds fewer, it falls back to one group per row and warns that test metrics may be optimistic.
 - Only a binary label (satellite candidate / not) is supported - no per-satellite classification yet.

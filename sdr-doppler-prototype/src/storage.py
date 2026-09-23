@@ -79,12 +79,24 @@ def format_training_summary(payload: dict) -> str:
     feature_importance = payload.get("feature_importance") or []
     model_version = payload.get("model_version") or "unknown"
 
+    val_metrics = payload.get("validation_metrics") or {}
     lines = [
         "Model training summary",
         "======================",
         f"Model: {model_version}",
         f"Training samples: {payload.get('n_training_samples', 'N/A')}",
+        f"Validation samples: {payload.get('n_validation_samples', 'N/A')}",
         f"Test samples: {payload.get('n_test_samples', 'N/A')}",
+    ]
+    if payload.get("group_source"):
+        lines.append(f"Split grouped by: {payload['group_source']}")
+    if payload.get("selected_hyperparameters"):
+        lines.append(f"Selected hyperparameters: {payload['selected_hyperparameters']}")
+    if val_metrics:
+        lines.append(f"Validation F1 (used for tuning): { _human_float(val_metrics.get('f1_score'), digits=3, default='N/A') }")
+    lines += [
+        "",
+        f"Test-set results ({payload.get('evaluation_set', 'held-out')})",
         f"Accuracy: { _human_float(metrics.get('accuracy'), digits=3, default='N/A') }",
         f"Precision: { _human_float(metrics.get('precision'), digits=3, default='N/A') }",
         f"Recall: { _human_float(metrics.get('recall'), digits=3, default='N/A') }",

@@ -12,7 +12,7 @@ from typing import Optional
 
 import numpy as np
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score, roc_auc_score
-from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, cross_val_score
 
 #: Minimum number of examples of the *minority* class required before
 #: k-fold cross-validation is attempted. Below this, CV folds would be
@@ -64,9 +64,18 @@ def format_confusion_matrix(cm) -> str:
     )
 
 
-def cross_validate(model, X, y, cv_folds: int = DEFAULT_CV_FOLDS) -> dict:
+def cross_validate(model, X, y, cv_folds: int = DEFAULT_CV_FOLDS, groups=None) -> dict:
     """Stratified k-fold cross-validation, or a clear skip reason if the
     dataset is too small for it to be meaningful.
+
+    Call this on the development set only (train + validation), never on
+    data that includes the held-out test set - otherwise the CV score has
+    already "seen" the test rows.
+
+    When ``groups`` is given (one recording id per row), folds are built
+    with StratifiedGroupKFold so every chunk of a recording stays in the
+    same fold. Otherwise near-identical windows from one recording would
+    appear on both sides of a fold and inflate the score.
 
     Returns {"performed": False, "reason": ...} rather than raising, so
     the training script can print the reason and move on.
@@ -86,12 +95,33 @@ def cross_validate(model, X, y, cv_folds: int = DEFAULT_CV_FOLDS) -> dict:
             ),
         }
 
-    folds = min(cv_folds, min_class_count)
-    skf = StratifiedKFold(n_splits=folds, shuffle=True, random_state=42)
-    scores = cross_val_score(model, X, y, cv=skf, scoring="f1")
+    if groups is None:
+        folds = min(cv_folds, min_class_count)
+        splitter = StratifiedKFold(n_splits=folds, shuffle=True, random_state=42)
+        scores = cross_val_score(model, X, y, cv=splitter, scoring="f1")
+        grouped = False
+    else:
+        groups = np.asarray(groups)
+        # Each fold needs at least one recording of each class, so the
+        # fold count is capped by the class with the fewest *recordings*.
+        min_groups_per_class = min(len(np.unique(groups[y == cls])) for cls in classes)
+        folds = min(cv_folds, min_groups_per_class)
+        if folds < 2:
+            return {
+                "performed": False,
+                "reason": (
+                    f"only {min_groups_per_class} distinct recording(s) in the smallest class; "
+                    "grouped cross-validation needs at least 2 per class"
+                ),
+            }
+        splitter = StratifiedGroupKFold(n_splits=folds, shuffle=True, random_state=42)
+        scores = cross_val_score(model, X, y, cv=splitter, groups=groups, scoring="f1")
+        grouped = True
+
     return {
         "performed": True,
         "folds": folds,
+        "grouped_by_recording": grouped,
         "f1_scores": [float(s) for s in scores],
         "f1_mean": float(np.mean(scores)),
         "f1_std": float(np.std(scores)),
