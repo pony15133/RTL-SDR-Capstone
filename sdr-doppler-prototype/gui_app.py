@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import threading
+from datetime import datetime
 from pathlib import Path
 from tkinter import BooleanVar, StringVar, Tk, Toplevel, filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
@@ -39,7 +40,7 @@ class SDRDopplerGUI:
         self.root.geometry("1150x820")
         self.root.minsize(980, 650)
 
-        self.function_var = StringVar(value="Train Model")
+        self.function_var = StringVar(value="Visualise IQ")
         self.dataset_var = StringVar(value=str(APP_DIR / "data" / "training" / "synthetic_example.csv"))
         self.model_var = StringVar(value=str(APP_DIR / "models" / "random_forest.joblib"))
         self.input_var = StringVar(value=str(APP_DIR / "data" / "raw" / "rsp03_2026_02_13_09_39_30_436.950MHz_1.00Msps_ci16_le.npy"))
@@ -52,7 +53,14 @@ class SDRDopplerGUI:
         self.center_freq_var = StringVar(value=str(DEFAULT_CENTER_FREQ_HZ))
         self.nperseg_var = StringVar(value=str(DEFAULT_NPERSEG))
         self.noverlap_var = StringVar(value=str(DEFAULT_NOVERLAP))
-        self.binary_dtype_var = StringVar(value="complex64")
+        self.binary_dtype_var = StringVar(value="auto")
+        self.viz_input_var = StringVar(value="")
+        self.viz_format_var = StringVar(value="auto")
+        self.viz_sample_rate_var = StringVar(value="")
+        self.viz_center_freq_var = StringVar(value="")
+        self.viz_nfft_var = StringVar(value="1024")
+        self.viz_start_var = StringVar(value="0")
+        self.viz_duration_var = StringVar(value="")
         self.snr_threshold_db_var = StringVar(value=str(DEFAULT_SNR_THRESHOLD_DB))
         self.min_valid_ratio_var = StringVar(value=str(DEFAULT_MIN_VALID_RATIO))
         self.min_drift_hz_var = StringVar(value=str(DEFAULT_MIN_DRIFT_HZ))
@@ -84,7 +92,7 @@ class SDRDopplerGUI:
         self.function_tabs.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 8))
 
         self.func_panels = {}
-        for name in ["Train Model", "Run Detection", "Convert SigMF (.sigmf-data/.sigmf-meta)", "Open Results Folder"]:
+        for name in ["Visualise IQ", "Run Detection", "Train Model", "Convert SigMF (.sigmf-data/.sigmf-meta)", "Open Results Folder"]:
             frame = ttk.Frame(self.function_tabs, padding=(16, 10, 16, 10))
             frame.grid_columnconfigure(1, weight=1)
             self.function_tabs.add(frame, text=name)
@@ -131,7 +139,27 @@ class SDRDopplerGUI:
         self.progress_bar.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
 
     def _populate_function_tab(self, parent, selected):
-        if selected == "Train Model":
+        if selected == "Visualise IQ":
+            self._add_field_row_to_parent(parent, "IQ recording", self.viz_input_var, browse_func=self._choose_viz_input)
+            fmt_row = ttk.Frame(parent)
+            fmt_row.pack(fill="x", pady=5)
+            ttk.Label(fmt_row, text="IQ format:", width=22, anchor="w").pack(side="left", padx=(0, 8))
+            ttk.Combobox(fmt_row, textvariable=self.viz_format_var, state="readonly", width=14,
+                         values=["auto", "cu8", "ci16", "complex64", "wav"]).pack(side="left")
+            self._add_field_row_to_parent(parent, "Sample rate (Hz, blank=auto)", self.viz_sample_rate_var)
+            self._add_field_row_to_parent(parent, "Centre freq (Hz, blank=auto)", self.viz_center_freq_var)
+            self._add_field_row_to_parent(parent, "FFT size", self.viz_nfft_var)
+            self._add_field_row_to_parent(parent, "Start (s)", self.viz_start_var)
+            self._add_field_row_to_parent(parent, "Duration (s, blank=all)", self.viz_duration_var)
+            self._add_field_row_to_parent(parent, "Output folder", self.output_dir_var, browse_func=self._choose_output_dir)
+            self._add_info_label_to_parent(
+                parent,
+                "Draws a waterfall of any IQ file without running detection or ML. Format, sample rate and centre "
+                "frequency are read from SigMF / recorder metadata or the file name when left blank. "
+                "cu8 = rtl_sdr .iq, ci16 = SigMF / CAMRAS .raw, complex64 = .bin, wav = SDR# recordings.",
+            )
+            ttk.Button(parent, text="Draw Waterfall", command=lambda: self._run_selected_function("Visualise IQ")).pack(anchor="w", pady=(12, 0))
+        elif selected == "Train Model":
             self._add_field_row_to_parent(parent, "Dataset CSV", self.dataset_var, browse_func=self._choose_dataset)
             self._add_field_row_to_parent(parent, "Model output", self.model_var, browse_func=self._choose_model_path)
             self._add_checkbox_row_to_parent(parent, "Allow synthetic data", self.allow_synthetic_var)
@@ -146,7 +174,7 @@ class SDRDopplerGUI:
             self._add_field_row_to_parent(parent, "Center freq (Hz)", self.center_freq_var)
             self._add_field_row_to_parent(parent, "nperseg", self.nperseg_var)
             self._add_field_row_to_parent(parent, "noverlap", self.noverlap_var)
-            self._add_field_row_to_parent(parent, "Binary dtype", self.binary_dtype_var)
+            self._add_field_row_to_parent(parent, "IQ format (auto/cu8/ci16/complex64/wav)", self.binary_dtype_var)
             self._add_field_row_to_parent(parent, "SNR threshold (dB)", self.snr_threshold_db_var)
             self._add_field_row_to_parent(parent, "Min valid ratio", self.min_valid_ratio_var)
             self._add_field_row_to_parent(parent, "Min drift (Hz)", self.min_drift_hz_var)
@@ -290,6 +318,10 @@ class SDRDopplerGUI:
             self._open_results_folder()
             return
 
+        if selected == "Visualise IQ":
+            self._visualise_iq()
+            return
+
         if selected == "Train Model":
             self._train_model()
             return
@@ -301,6 +333,39 @@ class SDRDopplerGUI:
         if selected == "Convert SigMF (.sigmf-data/.sigmf-meta)":
             self._convert_sigmf()
             return
+
+    def _choose_viz_input(self):
+        file = filedialog.askopenfilename(
+            title="Choose IQ recording",
+            initialdir=str(APP_DIR / "data" / "raw"),
+            filetypes=[
+                ("IQ recordings", "*.iq *.raw *.bin *.dat *.cu8 *.cs16 *.cf32 *.sigmf-data *.wav *.npy"),
+                ("All files", "*.*"),
+            ],
+        )
+        if file:
+            self.viz_input_var.set(file)
+
+    def _visualise_iq(self):
+        capture = Path(self.viz_input_var.get()).expanduser()
+        if not capture.is_file():
+            messagebox.showerror("Recording missing", f"Choose an IQ recording first:\n{capture}")
+            return
+        session_dir = Path(self.output_dir_var.get()).expanduser() / f"waterfall_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        cmd = [
+            sys.executable, "src/visualize.py",
+            "--input", str(capture),
+            "--output", str(session_dir / f"waterfall_{capture.stem}.png"),
+            "--format", self.viz_format_var.get().strip() or "auto",
+            "--nfft", self.viz_nfft_var.get().strip() or "1024",
+            "--start-seconds", self.viz_start_var.get().strip() or "0",
+        ]
+        for flag, var in (("--sample-rate", self.viz_sample_rate_var), ("--center-freq", self.viz_center_freq_var),
+                          ("--duration-seconds", self.viz_duration_var)):
+            if var.get().strip():
+                cmd += [flag, var.get().strip()]
+        self._run_command(cmd, title="Drawing waterfall")
 
     def _train_model(self):
         dataset = Path(self.dataset_var.get()).expanduser()
@@ -332,7 +397,7 @@ class SDRDopplerGUI:
         center_freq = self.center_freq_var.get().strip() or str(DEFAULT_CENTER_FREQ_HZ)
         nperseg = self.nperseg_var.get().strip() or str(DEFAULT_NPERSEG)
         noverlap = self.noverlap_var.get().strip() or str(DEFAULT_NOVERLAP)
-        binary_dtype = self.binary_dtype_var.get().strip() or "complex64"
+        binary_dtype = self.binary_dtype_var.get().strip() or "auto"
         snr_threshold = self.snr_threshold_db_var.get().strip() or str(DEFAULT_SNR_THRESHOLD_DB)
         min_valid_ratio = self.min_valid_ratio_var.get().strip() or str(DEFAULT_MIN_VALID_RATIO)
         min_drift_hz = self.min_drift_hz_var.get().strip() or str(DEFAULT_MIN_DRIFT_HZ)

@@ -60,29 +60,15 @@ from config import (  # noqa: E402
 from detect import detect_candidate  # noqa: E402
 from features.dataset_io import CSV_COLUMNS, feature_row_values  # noqa: E402
 from features.extractor import extract_features  # noqa: E402
+from iq_io import IQ_FORMATS, IQReader  # noqa: E402
 from spectrogram import iq_to_spectrogram  # noqa: E402
 
-SUPPORTED_DTYPES = ("ci16", "complex64", "cu8")
+SUPPORTED_DTYPES = IQ_FORMATS
 
 
 def load_iq(path: Path, dtype: str) -> np.ndarray:
-    """Memory-map a headerless IQ file and return complex64 samples scaled to roughly +-1.
-
-    ci16      - interleaved little-endian int16 I/Q (SigMF ci16_le, CAMRAS .raw)
-    complex64 - interleaved float32 I/Q (LoRadar .bin, GNU Radio)
-    cu8       - interleaved unsigned 8-bit I/Q (rtl_sdr native output)
-    """
-    if dtype == "complex64":
-        return np.memmap(path, dtype=np.complex64, mode="r")
-    if dtype == "ci16":
-        raw = np.memmap(path, dtype="<i2", mode="r")
-        raw = raw[: raw.size // 2 * 2]
-        return ((raw[0::2].astype(np.float32) + 1j * raw[1::2].astype(np.float32)) / 32768.0).astype(np.complex64)
-    if dtype == "cu8":
-        raw = np.memmap(path, dtype=np.uint8, mode="r")
-        raw = raw[: raw.size // 2 * 2].astype(np.float32)
-        return (((raw[0::2] - 127.5) + 1j * (raw[1::2] - 127.5)) / 127.5).astype(np.complex64)
-    raise ValueError(f"Unsupported dtype {dtype!r}; choose one of {SUPPORTED_DTYPES}")
+    """All samples as complex64 scaled to about +-1 (see src/iq_io.py for the formats)."""
+    return IQReader(path, dtype).read_all()
 
 
 def frame_power_db(iq: np.ndarray, nfft: int) -> np.ndarray:

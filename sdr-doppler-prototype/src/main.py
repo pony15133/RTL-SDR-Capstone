@@ -17,6 +17,7 @@ from database import insert_result, init_db
 from detect import detect_candidate
 from detection.ml_detector import run_ml_detection
 from features.extractor import extract_features
+from iq_io import is_raw_iq_file, probe
 from load_data import is_raw_iq_path, load_input
 from spectrogram import (
     iq_to_spectrogram,
@@ -48,11 +49,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input", required=True, type=Path, help="Input IQ file (.npy/.bin/.iq) or spectrogram matrix (.npy/.txt/.csv)")
     parser.add_argument("--output", required=True, type=Path, help="Directory for result summaries and images")
     parser.add_argument("--db", type=Path, default=DB_PATH, help="SQLite database path")
-    parser.add_argument("--sample-rate", type=float, default=DEFAULT_SAMPLE_RATE_HZ, help="IQ sample rate in Hz")
-    parser.add_argument("--center-freq", type=float, default=DEFAULT_CENTER_FREQ_HZ, help="Center frequency in Hz")
+    parser.add_argument("--sample-rate", type=float, default=None,
+                        help=f"IQ sample rate in Hz (default: from SigMF/recorder metadata or file name, else {DEFAULT_SAMPLE_RATE_HZ:g})")
+    parser.add_argument("--center-freq", type=float, default=None,
+                        help=f"Center frequency in Hz (default: from metadata or file name, else {DEFAULT_CENTER_FREQ_HZ:g})")
     parser.add_argument("--nperseg", type=int, default=DEFAULT_NPERSEG, help="Spectrogram FFT segment length")
     parser.add_argument("--noverlap", type=int, default=DEFAULT_NOVERLAP, help="Spectrogram overlap")
-    parser.add_argument("--binary-dtype", default="complex64", help="dtype for raw binary IQ files")
+    parser.add_argument("--binary-dtype", default="auto",
+                        help="IQ format for raw files: auto (default), cu8 (rtl_sdr .iq), ci16 (SigMF/CAMRAS), complex64, wav")
     parser.add_argument("--snr-threshold-db", type=float, default=DEFAULT_SNR_THRESHOLD_DB)
     parser.add_argument("--min-valid-ratio", type=float, default=DEFAULT_MIN_VALID_RATIO)
     parser.add_argument("--min-drift-hz", type=float, default=DEFAULT_MIN_DRIFT_HZ)
@@ -75,7 +79,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def resolve_capture_parameters(args: argparse.Namespace) -> None:
+    """Fill in --sample-rate / --center-freq from the recording's own
+    metadata when they weren't given, so the frequency axis is right."""
+    info = probe(args.input) if is_raw_iq_file(args.input) else None
+    if args.sample_rate is None:
+        args.sample_rate = (info.sample_rate_hz if info and info.sample_rate_hz else DEFAULT_SAMPLE_RATE_HZ)
+    if args.center_freq is None:
+        args.center_freq = (info.center_freq_hz if info and info.center_freq_hz else DEFAULT_CENTER_FREQ_HZ)
+
+
 def run(args: argparse.Namespace) -> int:
+    resolve_capture_parameters(args)
     print_progress("Loading input", 10, 100)
     loaded = load_input(args.input, binary_dtype=args.binary_dtype)
     time_axis_is_synthetic = loaded.kind != "iq"
