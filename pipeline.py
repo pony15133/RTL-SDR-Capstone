@@ -86,7 +86,8 @@ class PipelineResult:
 def load_raw_iq_as_complex(iq_path: Path) -> "np.ndarray":  # noqa: F821
     """Load an rtl_sdr raw ``.iq`` capture (interleaved uint8, offset 127.5)
     as complex64. Kept for callers/tests; the work is done by src/iq_io.py."""
-    return IQReader(iq_path, "cu8").read_all()
+    with IQReader(iq_path, "cu8") as reader:
+        return reader.read_all()
 
 
 def recording_metadata_columns(result: RecordingResult, *, frequency_hz=None, sample_rate_hz=None) -> dict:
@@ -190,9 +191,9 @@ def process_recording(
     ml_model_path = Path(ml_model_path) if ml_model_path else DEFAULT_ML_MODEL_PATH
     input_path = Path(result.output_file)
 
-    reader = IQReader(input_path, "cu8")
     limit = None if max_detection_seconds is None else int(max_detection_seconds * sample_rate_hz)
-    iq_samples = reader.read_all(limit)
+    with IQReader(input_path, "cu8") as reader:  # closed before retention may move/delete the file
+        iq_samples = reader.read_all(limit)
     spec = iq_to_spectrogram(
         iq_samples,
         sample_rate_hz=sample_rate_hz,

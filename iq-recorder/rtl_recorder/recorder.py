@@ -35,7 +35,7 @@ from .filenames import build_base_filename, unique_output_paths
 from .metadata import RecordingMetadata, RecordingResult, to_iso
 from .process import ProcessHandle
 from .states import RecorderState, RecordingStatus
-from .utils import check_disk_space, expected_iq_file_size, find_executable
+from .utils import check_disk_space, expected_iq_file_size, find_executable, tool_command
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +222,7 @@ class RTLSDRRecorder:
 
     def _start_real(self, session: _Session) -> None:
         exe = find_executable("rtl_sdr", self.config.rtl_sdr_path)
-        cmd = [exe, "-d", str(self.config.device_index), "-f", str(session.frequency_hz), "-s", str(session.sample_rate)]
+        cmd = [*tool_command(exe), "-d", str(self.config.device_index), "-f", str(session.frequency_hz), "-s", str(session.sample_rate)]
         if session.gain is not None:
             cmd += ["-g", str(session.gain)]
         cmd.append(str(session.output_path))

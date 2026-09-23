@@ -250,6 +250,24 @@ class IQReader:
     def __len__(self) -> int:
         return self._n
 
+    def close(self) -> None:
+        """Release the memory map. On Windows a mapped file cannot be moved or
+        deleted until this is done (WinError 32)."""
+        raw = getattr(self, "_raw", None)
+        mm = getattr(raw, "_mmap", None)
+        self._raw = None
+        if mm is not None:
+            try:
+                mm.close()
+            except (BufferError, ValueError):
+                pass  # a view is still alive somewhere; the GC will release it
+
+    def __enter__(self) -> "IQReader":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
     def __getitem__(self, item) -> np.ndarray:
         if not isinstance(item, slice):
             raise TypeError("IQReader supports slicing only, e.g. reader[0:1024]")
@@ -257,7 +275,8 @@ class IQReader:
         if step != 1:
             raise ValueError("IQReader slices must have step 1")
         if self.iq_format == "complex64":
-            return np.asarray(self._raw[start:stop], dtype=np.complex64)
+            # np.array copies, so returned samples never pin the memory map open
+            return np.array(self._raw[start:stop], dtype=np.complex64)
         if self.iq_format == "wav":
             block = np.asarray(self._raw[start:stop, :2], dtype=np.float32)
             block = (block - self._offset) / self._scale

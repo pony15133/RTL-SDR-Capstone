@@ -128,17 +128,18 @@ def run(args) -> Path:
     info = probe(args.input, iq_format=args.format, sample_rate_hz=args.sample_rate, center_freq_hz=args.center_freq)
     if not info.sample_rate_hz:
         raise SystemExit(f"FAILED: sample rate unknown for {args.input.name} - pass --sample-rate.")
-    reader = IQReader(args.input, info.iq_format)
-    wf = compute_waterfall(reader, info.sample_rate_hz, center_freq_hz=info.center_freq_hz, nfft=args.nfft,
-                           rows=args.rows, ffts_per_row=args.ffts_per_row,
-                           start_seconds=args.start_seconds, duration_seconds=args.duration_seconds)
+    with IQReader(args.input, info.iq_format) as reader:
+        total_samples = len(reader)
+        wf = compute_waterfall(reader, info.sample_rate_hz, center_freq_hz=info.center_freq_hz, nfft=args.nfft,
+                               rows=args.rows, ffts_per_row=args.ffts_per_row,
+                               start_seconds=args.start_seconds, duration_seconds=args.duration_seconds)
     output = args.output or Path(__file__).resolve().parents[1] / "data" / "results" / f"waterfall_{args.input.stem}.png"
     centre = f"{info.center_freq_hz / 1e6:.4f} MHz" if info.center_freq_hz else "centre unknown"
     title = (f"{args.input.name}\n{info.iq_format}, {info.sample_rate_hz / 1e6:g} Msps, {centre}, "
              f"{wf.start_s:.1f}-{wf.end_s:.1f} s  (metadata: {info.source})")
     save_waterfall_png(wf, output, title)
     print(f"format={info.iq_format} sample_rate={info.sample_rate_hz:g} center_freq={info.center_freq_hz} source={info.source}")
-    print(f"duration_s={len(reader) / info.sample_rate_hz:.2f} rendered={wf.start_s:.2f}-{wf.end_s:.2f}s")
+    print(f"duration_s={total_samples / info.sample_rate_hz:.2f} rendered={wf.start_s:.2f}-{wf.end_s:.2f}s")
     print(f"waterfall_image={output}")
     return output
 

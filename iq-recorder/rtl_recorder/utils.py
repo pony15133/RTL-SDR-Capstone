@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import platform
 import shutil
+import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -108,6 +109,16 @@ def find_executable(name: str, explicit_path: Optional[str] = None) -> str:
         f"'{name}' was not found on PATH or in the usual {platform_name()} install folders. "
         f"{install_hint()} Or pass an explicit path (--rtl-sdr-path / --rtl-test-path)."
     )
+
+
+def tool_command(executable: str) -> List[str]:
+    """argv prefix for running a located tool. Native binaries run directly;
+    a Python script (e.g. the test suite's fake rtl_sdr, or a wrapper) is run
+    through the current interpreter, because Windows cannot execute .py files
+    directly (WinError 193)."""
+    if str(executable).lower().endswith(".py"):
+        return [sys.executable, str(executable)]
+    return [str(executable)]
 
 
 def expected_iq_file_size(sample_rate: float, duration_seconds: float,

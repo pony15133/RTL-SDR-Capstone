@@ -68,7 +68,8 @@ SUPPORTED_DTYPES = IQ_FORMATS
 
 def load_iq(path: Path, dtype: str) -> np.ndarray:
     """All samples as complex64 scaled to about +-1 (see src/iq_io.py for the formats)."""
-    return IQReader(path, dtype).read_all()
+    with IQReader(path, dtype) as reader:
+        return reader.read_all()
 
 
 def frame_power_db(iq: np.ndarray, nfft: int) -> np.ndarray:

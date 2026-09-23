@@ -14,9 +14,10 @@ Behaviour is selected via the ``FAKE_RTLSDR_MODE`` environment variable:
 - ``crash``: writes a little data, then exits non-zero shortly after,
   simulating a mid-recording crash.
 
-Only exercised on POSIX in this test suite (SIGINT/SIGTERM); the
-Windows-specific CTRL_BREAK_EVENT stop path in rtl_recorder.process is not
-covered here and should be verified manually on Windows.
+Stops cleanly on SIGINT/SIGTERM (POSIX) and SIGBREAK, which is what
+rtl_recorder.process sends on Windows (CTRL_BREAK_EVENT). It is launched
+through the Python interpreter (see rtl_recorder.utils.tool_command), so the
+same tests run on Windows, macOS and Linux.
 """
 import os
 import signal
@@ -59,6 +60,8 @@ def main() -> int:
 
     signal.signal(signal.SIGINT, _handle_stop)
     signal.signal(signal.SIGTERM, _handle_stop)
+    if hasattr(signal, "SIGBREAK"):  # Windows: rtl_recorder.process sends CTRL_BREAK_EVENT
+        signal.signal(signal.SIGBREAK, _handle_stop)
 
     bytes_per_second = sample_rate * 2
     chunk = max(1, bytes_per_second // 10)

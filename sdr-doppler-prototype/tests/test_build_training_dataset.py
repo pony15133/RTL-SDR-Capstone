@@ -285,3 +285,11 @@ class TestRunEndToEnd:
     def test_missing_input_dir_fails_cleanly(self, tmp_path):
         args = _base_args(tmp_path, tmp_path / "does_not_exist", tmp_path / "features.csv", label=1)
         assert btd.run(args) == 1
+
+
+def test_manifest_keys_with_backslashes_match(tmp_path):
+    """A labels CSV written on Windows ("negative\\a.bin") must match too."""
+    path = tmp_path / "negative" / "a.bin"
+    path.parent.mkdir()
+    path.touch()
+    assert btd.resolve_label(path, tmp_path, {"negative\\a.bin": 1}, forced_label=None) == 1

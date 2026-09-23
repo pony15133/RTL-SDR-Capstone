@@ -85,3 +85,10 @@ def test_doctor_explains_missing_tools(tmp_path, monkeypatch, empty_path):
     assert "To install the RTL-SDR tools" in report
     assert "simulation mode" in report
     assert doctor.main(["--output-dir", str(tmp_path / "rec"), "--no-device"]) == 1
+
+
+def test_python_tools_are_run_through_the_interpreter():
+    """Windows cannot execute a .py directly (WinError 193)."""
+    assert utils.tool_command("C:/tools/rtl_sdr.exe") == ["C:/tools/rtl_sdr.exe"]
+    assert utils.tool_command("/usr/bin/rtl_sdr") == ["/usr/bin/rtl_sdr"]
+    assert utils.tool_command("tests/fixtures/fake_rtl_sdr.py") == [sys.executable, "tests/fixtures/fake_rtl_sdr.py"]
