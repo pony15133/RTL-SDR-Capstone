@@ -2,8 +2,8 @@
 date+time), then let the caller start a recording.
 
 This is deliberately independent of satellite pass prediction (AOS/LOS,
-pre/post buffers) - that is ``RTLSDRRecorder.record_pass()``, still
-unimplemented (Phase 2). This module only answers a much simpler
+pre/post buffers) - that is ``RTLSDRRecorder.record_pass()`` together with
+``rtl_recorder.passes``. This module only answers a much simpler
 question: "it's not 7pm yet - wait until it is, without blocking forever
 and without ignoring a cancel request." Manual/FM-station-style
 "auto-capture at a fixed time" scheduling belongs here; satellite-pass

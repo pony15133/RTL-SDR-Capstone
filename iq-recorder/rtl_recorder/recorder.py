@@ -17,7 +17,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -273,6 +273,10 @@ class RTLSDRRecorder:
                     status=RecordingStatus.FAILED, error_message=f"Cannot cancel: recorder is in state {state.value}"
                 )
             self._cancel_event.set()
+            if state == RecorderState.WAITING:
+                # Nothing started yet - record_pass() sees the event and returns CANCELLED itself.
+                logger.warning("Cancel requested while waiting for a pass")
+                return RecordingResult(status=RecordingStatus.CANCELLED, error_message="cancelled before the pass started")
         logger.warning("Cancel requested")
         return self._finalize("cancelled")
 
@@ -304,18 +308,67 @@ class RTLSDRRecorder:
         reason = self._wait_for_stop_condition(duration)
         return self._finalize(reason)
 
-    def record_pass(self, **kwargs) -> RecordingResult:
-        """Scheduled AOS/LOS recording - implemented in Phase 2.
+    def record_pass(self, *, satellite_name: str, frequency_hz, sample_rate, gain, aos: datetime, los: datetime,
+                    pre_buffer: float = 30.0, post_buffer: float = 30.0, norad_id: Optional[int] = None,
+                    output_dir: Optional[str] = None, now_fn=None, sleep_fn=None) -> RecordingResult:
+        """Wait for a satellite pass, then record from AOS - pre_buffer to
+        LOS + post_buffer. Blocks until done; never raises for expected
+        failures - check ``result.status``.
 
-        The intended signature (accepting UTC ``aos``/``los`` datetimes and
-        ``pre_buffer``/``post_buffer`` seconds) is documented in the
-        project README; it is intentionally not implemented yet so that
-        Phase 1 (manual recording + simulation) can be validated first.
+        * Before the window: waits (cancellable via ``cancel_recording()``).
+        * Already inside the window (e.g. started late): records the rest.
+        * Window already over: returns FAILED without touching the device.
+
+        ``aos``/``los`` must be timezone-aware UTC datetimes (naive ones are
+        taken as UTC). ``now_fn``/``sleep_fn`` are injectable for tests.
         """
-        raise NotImplementedError(
-            "record_pass() (scheduled AOS/LOS recording) is implemented in Phase 2. "
-            "Use record() for manual/immediate recordings in Phase 1."
-        )
+        from .scheduler import wait_until
+
+        now_fn = now_fn or (lambda: datetime.now(timezone.utc))
+        aos = aos if aos.tzinfo else aos.replace(tzinfo=timezone.utc)
+        los = los if los.tzinfo else los.replace(tzinfo=timezone.utc)
+        if los <= aos:
+            return RecordingResult(status=RecordingStatus.FAILED, error_message=f"LOS {los} is not after AOS {aos}")
+        window_start = aos - timedelta(seconds=pre_buffer)
+        window_end = los + timedelta(seconds=post_buffer)
+
+        if now_fn() >= window_end:
+            return RecordingResult(status=RecordingStatus.FAILED,
+                                   error_message=f"pass window already over (ended {window_end.isoformat()})")
+
+        with self._lock:
+            if self._state in _ACTIVE_STATES:
+                return RecordingResult(status=RecordingStatus.DEVICE_BUSY,
+                                       error_message=f"DEVICE_BUSY: recorder is {self._state.value}")
+            self._cancel_event.clear()
+            self._set_state(RecorderState.WAITING, f"{satellite_name} window opens {window_start.isoformat()}")
+        logger.info("Waiting for %s pass: record %s -> %s", satellite_name, window_start.isoformat(),
+                    window_end.isoformat())
+        wait_kwargs = {"cancel_event": self._cancel_event, "now_fn": now_fn}
+        if sleep_fn is not None:
+            wait_kwargs["sleep_fn"] = sleep_fn
+        reached = wait_until(window_start, **wait_kwargs)
+        with self._lock:
+            self._set_state(RecorderState.IDLE, "wait finished")
+        if not reached:
+            with self._lock:
+                self._set_state(RecorderState.CANCELLED, "cancelled while waiting for AOS")
+            return RecordingResult(status=RecordingStatus.CANCELLED, error_message="cancelled before the pass started")
+
+        duration = (window_end - now_fn()).total_seconds()
+        if duration < 1:
+            return RecordingResult(status=RecordingStatus.FAILED, error_message="pass window closed while waiting")
+        try:
+            self.start_recording(
+                satellite_name=satellite_name, frequency_hz=frequency_hz, sample_rate=sample_rate, gain=gain,
+                duration=duration, norad_id=norad_id, scheduled_aos=aos, scheduled_los=los,
+                pre_buffer_seconds=pre_buffer, post_buffer_seconds=post_buffer, output_dir=output_dir,
+            )
+        except RTLSDRError as exc:
+            status = RecordingStatus.DEVICE_BUSY if isinstance(exc, DeviceBusyError) else RecordingStatus.FAILED
+            return RecordingResult(status=status, error_message=str(exc))
+        reason = self._wait_for_stop_condition(duration)
+        return self._finalize(reason)
 
     # ------------------------------------------------------------------ #
     # Internal: wait loop + finalisation
