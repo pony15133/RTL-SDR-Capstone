@@ -96,7 +96,8 @@ def load_raw_iq_as_complex(iq_path: Path) -> "np.ndarray":  # noqa: F821
         return reader.read_all()
 
 
-def save_waterfall_image(matrix, path: Path, target_hz: float, doppler: Optional[DopplerCurve]) -> Path:
+def save_waterfall_image(matrix, path: Path, target_hz: float, doppler: Optional[DopplerCurve],
+                         span_hz: float = STANDARD_SPAN_HZ) -> Path:
     """PNG of the standard waterfall (what a person checks, and what the dashboard shows)."""
     import matplotlib
 
@@ -106,7 +107,7 @@ def save_waterfall_image(matrix, path: Path, target_hz: float, doppler: Optional
     import numpy as np
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    half_khz = STANDARD_SPAN_HZ / 2e3
+    half_khz = span_hz / 2e3
     fig, ax = plt.subplots(figsize=(5, 7))
     vmin, vmax = np.percentile(matrix, [5, 99.7])
     ax.imshow(matrix, aspect="auto", origin="upper", cmap="viridis", vmin=vmin, vmax=vmax,
@@ -202,6 +203,7 @@ def process_recording(
     target_frequency_hz: Optional[float] = None,
     doppler: Optional[DopplerCurve] = None,
     waterfall_model_path: Optional[Path] = None,
+    waterfall_span_hz: float = STANDARD_SPAN_HZ,
 ) -> PipelineResult:
     """Run detection on a completed recording, store the result in the DB,
     then keep/archive/delete the IQ file according to ``retention_policy``.
@@ -269,10 +271,11 @@ def process_recording(
     target = float(target_frequency_hz or frequency_hz)
     try:
         with IQReader(input_path, "cu8") as wf_reader:
-            wf_matrix = standard_waterfall(wf_reader, sample_rate_hz, offset_hz=target - frequency_hz, doppler=doppler)
+            wf_matrix = standard_waterfall(wf_reader, sample_rate_hz, offset_hz=target - frequency_hz, doppler=doppler,
+                                           span_hz=waterfall_span_hz)
         wf_detection = None if no_ml else predict_waterfall(waterfall_model_path, wf_matrix)
         wf_image = save_waterfall_image(wf_matrix, output_dir / f"{safe_stem(input_path)}_{timestamp.replace(':', '')}"
-                                        f"_waterfall.png", target, doppler)
+                                        f"_waterfall.png", target, doppler, span_hz=waterfall_span_hz)
     except ValueError as exc:  # e.g. a very short or narrow recording
         wf_matrix = None
         wf_status_note = f"no standard waterfall: {exc}"

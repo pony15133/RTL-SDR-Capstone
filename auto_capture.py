@@ -59,6 +59,10 @@ class Target:
     sample_rate: int = 1_024_000
     gain: object = "auto"
     min_elevation_deg: Optional[float] = None
+    #: Width of the Doppler-corrected waterfall around the downlink. 48 kHz suits
+    #: narrow FM/FSK beacons; wide signals like METEOR LRPT (~150 kHz) need ~160 kHz,
+    #: which is also how SatNOGS draws them (so the waterfall model sees the same view).
+    waterfall_span_hz: float = 48_000.0
 
 
 @dataclass
@@ -330,7 +334,7 @@ def run_plan(plan: List[PlannedPass], settings: Settings, *, stop_event: Optiona
                 logger.warning("No Doppler curve for %s: %s", t.name, exc)
         pr = process_recording(
             result, frequency_hz=tuned_hz, sample_rate_hz=t.sample_rate,
-            target_frequency_hz=t.frequency_hz, doppler=doppler,
+            target_frequency_hz=t.frequency_hz, doppler=doppler, waterfall_span_hz=t.waterfall_span_hz,
             waterfall_model_path=Path(settings.waterfall_model) if settings.waterfall_model else None,
             db_path=Path(settings.db_path) if settings.db_path else None,
             output_dir=Path(settings.results_dir) if settings.results_dir else None,

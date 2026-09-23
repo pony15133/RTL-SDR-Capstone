@@ -33,3 +33,7 @@ recordings/
 
 # TLE cache written by auto_capture.py
 tle_cache/
+
+# Per-station config and runtime state
+capture_config.json
+recordings/

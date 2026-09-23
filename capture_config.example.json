@@ -1,5 +1,5 @@
 {
-  "_readme": "Copy to capture_config.json and edit. Check each satellite is still active and its downlink frequency before relying on it (e.g. on CelesTrak / SatNOGS DB).",
+  "_readme": "Copy to capture_config.json and edit the station. METEOR-M2-3/M2-4 (137.9 MHz LRPT) transmit continuously and are the best first targets for an RTL-SDR with a V-dipole; the ISS 437.8 MHz FM repeater is only audible while someone is using it. Check satellites are still active on network.satnogs.org before relying on them.",
   "station": {
     "name": "Singapore campus",
     "lat_deg": 1.3521,
@@ -22,22 +22,25 @@
   },
   "satellites": [
     {
-      "name": "ISS",
-      "norad_id": 25544,
-      "frequency_hz": 145800000,
-      "gain": 30
-    },
-    {
       "name": "METEOR-M2-3",
       "norad_id": 57166,
       "frequency_hz": 137900000,
-      "gain": 30
+      "gain": 30,
+      "waterfall_span_hz": 160000
     },
     {
       "name": "METEOR-M2-4",
       "norad_id": 59051,
       "frequency_hz": 137900000,
-      "gain": 30
+      "gain": 30,
+      "waterfall_span_hz": 160000
+    },
+    {
+      "name": "ISS",
+      "norad_id": 25544,
+      "frequency_hz": 437800000,
+      "gain": 35,
+      "waterfall_span_hz": 48000
     }
   ]
 }

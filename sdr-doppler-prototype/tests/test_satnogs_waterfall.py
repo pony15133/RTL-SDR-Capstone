@@ -190,3 +190,20 @@ def test_waterfall_model_missing_is_graceful(tmp_path):
     from detection.waterfall_detector import predict_waterfall
 
     assert predict_waterfall(tmp_path / "none.joblib", np.zeros((128, 128))).status == "MODEL_NOT_AVAILABLE"
+
+
+def test_external_evaluation_on_committed_rsp03_waterfall_set(tmp_path):
+    """The committed real RSP-03 waterfall features train/evaluate end to end."""
+    from ml.train import build_arg_parser, run_training
+
+    data = ROOT / "data" / "training" / "rsp03_waterfall_features.csv"
+    df = pd.read_csv(data)
+    assert len(df) == 111 and set(df["label"]) == {0, 1}
+    res = run_training(build_arg_parser().parse_args([
+        "--feature-set", "waterfall", "--dataset", str(data), "--output", str(tmp_path / "m.joblib"),
+        "--no-tune", "--cv-folds", "2"]))
+    spec = importlib.util.spec_from_file_location("evaluate_model", ROOT / "scripts" / "evaluate_model.py")
+    ev = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ev)
+    m = ev.evaluate(res.model_path, data)
+    assert m["n_samples"] == 111 and m["accuracy"] > 0.9

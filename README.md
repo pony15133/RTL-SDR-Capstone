@@ -2,7 +2,9 @@
 
 Capstone project: **database of signals, position histories, archiving and status monitoring** for a low-cost RTL-SDR ground station.
 
-The system predicts when satellites pass overhead, records their radio signal with an RTL-SDR, decides with a rule-based detector and a machine-learning model whether a satellite was actually captured, stores everything in a database, and keeps only the recordings worth keeping.
+The system predicts when satellites pass overhead, records their radio signal with an RTL-SDR, removes the Doppler shift, decides with a rule-based detector and two machine-learning models whether a satellite was actually captured, stores everything in a database, keeps only the recordings worth keeping, and shows it all on a live dashboard.
+
+> **Running the station with a dongle? Start with [QUICKSTART.md](QUICKSTART.md).** `setup`, then `check_dongle`, then `run_station`.
 
 ```
  TLE (CelesTrak)            iq-recorder                     sdr-doppler-prototype
@@ -20,7 +22,9 @@ The system predicts when satellites pass overhead, records their radio signal wi
 |---|---|
 | `auto_capture.py` | **The whole pipeline in one command**: predict passes → wait → record → detect → database → retention |
 | `pipeline.py` | One recording → detection → database (used by `auto_capture.py`; also a manual CLI) |
-| `capture_config.example.json` | Ground station (Singapore), recording defaults, satellite list |
+| `capture_config.example.json` | Ground station (Singapore), recording defaults, satellite list (copied to your own `capture_config.json` by setup) |
+| `dashboard.py` | Live status dashboard at http://localhost:8050 |
+| `setup.*` / `check_dongle.*` / `run_station.*` | One-time setup, 1-minute hardware test, start dashboard + capture (Windows `.bat`, macOS/Linux `.sh`) |
 | `iq-recorder/` | `rtl_recorder` package: cross-platform `rtl_sdr` control, pass prediction (`passes.py`), `record_pass()`, environment `doctor` |
 | `sdr-doppler-prototype/` | Signal processing, features, rule + ML detectors, training, database, GUI, visualisation |
 | `sdr-doppler-prototype/gui_app.py` | Desktop GUI (Windows: `launch_gui.bat`, macOS/Linux: `launch_gui.sh`) |
@@ -71,6 +75,9 @@ python train_model.py --dataset data/training/rsp03_camras_features.csv --output
 | Cross-platform, no `rtl_sdr.exe` (Bijaya, 24 Aug) | `rtl_recorder/utils.find_executable()` (per-OS search), `rtl_recorder/doctor.py`, `launch_gui.sh` |
 | ML confidence decides whether to keep the IQ file | `src/retention.py`: `keep-all` / `archive-negatives` / `delete-negatives`, with the decision logged per row |
 | Proper train / validation / test methodology (Xinyi, 9 Sep) | `src/ml/train.py`: split by recording, tuned on validation, test scored once, `<model>_splits.csv` |
+| Doppler correction | `src/doppler.py`: predicted Doppler curve from TLE + station, removed from every recording; offset tuning keeps the dongle's DC spike away from the signal; `visualize.py --doppler` |
+| Real training data from online sources | `scripts/fetch_satnogs_dataset.py`: vetted good/bad observations from the worldwide SatNOGS network → waterfall model (`train_model.py --feature-set waterfall`); external test on the CAMRAS RSP-03 pass (`scripts/evaluate_model.py`) |
+| Live status dashboard | `dashboard.py` (heartbeat from `auto_capture.py`) |
 | Position histories and status monitoring (project title) | Tables `pass_positions` (az/el/range/Doppler every 10 s per pass) and `status_log`, shown by `history.py` and the GUI tab **Capture History** |
 
 ## Database (`sdr-doppler-prototype/data/results/captures.sqlite3`)
