@@ -432,3 +432,20 @@ def _refine_max(propagator, station, around: datetime, step: timedelta) -> Tuple
             hi = m2
     mid = lo + (hi - lo) / 2
     return elevation_at(propagator, station, mid)[0], mid
+
+
+def pass_track(propagator, station: GroundStation, start: datetime, end: datetime, *, step_seconds: float = 10.0,
+               frequency_hz: Optional[float] = None) -> List[dict]:
+    """Satellite position every ``step_seconds`` between start and end - the
+    'position history' stored with each recorded pass."""
+    points = []
+    t = start
+    while t <= end:
+        az, el, rng = look_angles(eci_to_ecef(propagator.position_eci(t), t), station)
+        points.append({
+            "timestamp_utc": t.isoformat(timespec="seconds"),
+            "azimuth_deg": round(az, 3), "elevation_deg": round(el, 3), "range_km": round(rng, 3),
+            "doppler_hz": round(doppler_shift_hz(propagator, station, frequency_hz, t), 1) if frequency_hz else None,
+        })
+        t += timedelta(seconds=step_seconds)
+    return points

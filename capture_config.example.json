@@ -1,0 +1,26 @@
+{
+  "_readme": "Copy to capture_config.json and edit. Check each satellite is still active and its downlink frequency before relying on it (e.g. on CelesTrak / SatNOGS DB).",
+  "station": {
+    "name": "Singapore campus",
+    "lat_deg": 1.3521,
+    "lon_deg": 103.8198,
+    "alt_m": 15
+  },
+  "recording": {
+    "sample_rate": 1024000,
+    "hours": 24,
+    "min_elevation_deg": 15,
+    "pre_buffer": 30,
+    "post_buffer": 30,
+    "output_dir": "recordings",
+    "retention": "archive-negatives",
+    "keep_threshold": 0.5,
+    "ml_model": "sdr-doppler-prototype/models/random_forest.joblib",
+    "save_image": true
+  },
+  "satellites": [
+    {"name": "ISS", "norad_id": 25544, "frequency_hz": 145800000, "gain": 30},
+    {"name": "METEOR-M2-3", "norad_id": 57166, "frequency_hz": 137900000, "gain": 30},
+    {"name": "METEOR-M2-4", "norad_id": 59051, "frequency_hz": 137900000, "gain": 30}
+  ]
+}

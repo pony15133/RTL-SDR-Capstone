@@ -61,6 +61,9 @@ class SDRDopplerGUI:
         self.viz_nfft_var = StringVar(value="1024")
         self.viz_start_var = StringVar(value="0")
         self.viz_duration_var = StringVar(value="")
+        self.history_capture_var = StringVar(value="")
+        self.passes_config_var = StringVar(value=str(PROJECT_ROOT / "capture_config.example.json"))
+        self.passes_hours_var = StringVar(value="24")
         self.snr_threshold_db_var = StringVar(value=str(DEFAULT_SNR_THRESHOLD_DB))
         self.min_valid_ratio_var = StringVar(value=str(DEFAULT_MIN_VALID_RATIO))
         self.min_drift_hz_var = StringVar(value=str(DEFAULT_MIN_DRIFT_HZ))
@@ -92,7 +95,8 @@ class SDRDopplerGUI:
         self.function_tabs.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 8))
 
         self.func_panels = {}
-        for name in ["Visualise IQ", "Run Detection", "Train Model", "Convert SigMF (.sigmf-data/.sigmf-meta)", "Open Results Folder"]:
+        for name in ["Visualise IQ", "Run Detection", "Satellite Passes", "Capture History", "Train Model",
+                     "Convert SigMF (.sigmf-data/.sigmf-meta)", "Open Results Folder"]:
             frame = ttk.Frame(self.function_tabs, padding=(16, 10, 16, 10))
             frame.grid_columnconfigure(1, weight=1)
             self.function_tabs.add(frame, text=name)
@@ -159,6 +163,28 @@ class SDRDopplerGUI:
                 "cu8 = rtl_sdr .iq, ci16 = SigMF / CAMRAS .raw, complex64 = .bin, wav = SDR# recordings.",
             )
             ttk.Button(parent, text="Draw Waterfall", command=lambda: self._run_selected_function("Visualise IQ")).pack(anchor="w", pady=(12, 0))
+        elif selected == "Satellite Passes":
+            self._add_field_row_to_parent(parent, "Capture config (JSON)", self.passes_config_var, browse_func=self._choose_passes_config)
+            self._add_field_row_to_parent(parent, "Hours ahead", self.passes_hours_var)
+            self._add_info_label_to_parent(
+                parent,
+                "Predicts passes for the satellites and ground station in the config (TLEs from CelesTrak, cached). "
+                "'Run demo capture' simulates one pass end to end: wait -> record -> detect -> database -> retention. "
+                "For real unattended capture run auto_capture.py from a terminal.",
+            )
+            buttons = ttk.Frame(parent)
+            buttons.pack(anchor="w", pady=(12, 0))
+            ttk.Button(buttons, text="List Upcoming Passes", command=lambda: self._run_selected_function("List Passes")).pack(side="left")
+            ttk.Button(buttons, text="Run Demo Capture", command=lambda: self._run_selected_function("Demo Capture")).pack(side="left", padx=8)
+        elif selected == "Capture History":
+            self._add_field_row_to_parent(parent, "Database path", self.db_path_var, browse_func=self._choose_db_path)
+            self._add_field_row_to_parent(parent, "Capture id (optional)", self.history_capture_var)
+            self._add_info_label_to_parent(
+                parent,
+                "Shows recent captures (satellite, recording status, rule/ML result, what happened to the IQ file) "
+                "and the station status log. Enter a capture id to see its full record and satellite position history.",
+            )
+            ttk.Button(parent, text="Show History", command=lambda: self._run_selected_function("Capture History")).pack(anchor="w", pady=(12, 0))
         elif selected == "Train Model":
             self._add_field_row_to_parent(parent, "Dataset CSV", self.dataset_var, browse_func=self._choose_dataset)
             self._add_field_row_to_parent(parent, "Model output", self.model_var, browse_func=self._choose_model_path)
@@ -322,6 +348,29 @@ class SDRDopplerGUI:
             self._visualise_iq()
             return
 
+        if selected == "Capture History":
+            cmd = [sys.executable, "src/history.py", "--db", str(Path(self.db_path_var.get()).expanduser())]
+            if self.history_capture_var.get().strip():
+                cmd += ["--capture", self.history_capture_var.get().strip()]
+            self._run_command(cmd, title="Loading capture history", open_results=False)
+            return
+
+        if selected in ("List Passes", "Demo Capture"):
+            config = Path(self.passes_config_var.get()).expanduser()
+            if not config.is_file():
+                messagebox.showerror("Config missing", f"Capture config not found:\n{config}")
+                return
+            cmd = [sys.executable, str(PROJECT_ROOT / "auto_capture.py"), "--config", str(config),
+                   "--db", str(Path(self.db_path_var.get()).expanduser())]
+            if selected == "List Passes":
+                cmd += ["--list-only", "--hours", self.passes_hours_var.get().strip() or "24"]
+            else:
+                cmd += ["--demo", "--results-dir", str(Path(self.output_dir_var.get()).expanduser()
+                                                       / f"demo_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")]
+            self._run_command(cmd, title="Predicting passes" if selected == "List Passes" else "Running demo capture",
+                              cwd=PROJECT_ROOT, open_results=selected == "Demo Capture")
+            return
+
         if selected == "Train Model":
             self._train_model()
             return
@@ -333,6 +382,12 @@ class SDRDopplerGUI:
         if selected == "Convert SigMF (.sigmf-data/.sigmf-meta)":
             self._convert_sigmf()
             return
+
+    def _choose_passes_config(self):
+        file = filedialog.askopenfilename(title="Choose capture config", initialdir=str(PROJECT_ROOT),
+                                          filetypes=[("JSON", "*.json"), ("All files", "*.*")])
+        if file:
+            self.passes_config_var.set(file)
 
     def _choose_viz_input(self):
         file = filedialog.askopenfilename(
@@ -505,7 +560,7 @@ class SDRDopplerGUI:
         except Exception as exc:
             messagebox.showerror("Image error", f"Unable to open image: {exc}")
 
-    def _run_command(self, cmd, title: str):
+    def _run_command(self, cmd, title: str, cwd=None, open_results: bool = True):
         self.status_var.set(f"{title} running...")
         self.progress_text_var.set(f"Working: {title}")
         self.progress_bar.configure(mode="indeterminate")
@@ -513,7 +568,7 @@ class SDRDopplerGUI:
 
         def worker():
             try:
-                result = subprocess.run(cmd, cwd=str(APP_DIR), capture_output=True, text=True)
+                result = subprocess.run(cmd, cwd=str(cwd or APP_DIR), capture_output=True, text=True)
                 stdout = result.stdout.strip()
                 stderr = result.stderr.strip()
                 combined = "\n".join(part for part in [stdout, stderr] if part)
@@ -521,7 +576,7 @@ class SDRDopplerGUI:
                     self.status_var.set(f"{title} complete")
                 else:
                     self.status_var.set(f"{title} failed")
-                self.root.after(0, lambda: self._show_command_output(combined, result.returncode))
+                self.root.after(0, lambda: self._show_command_output(combined, result.returncode, open_results))
             except Exception as exc:
                 self.root.after(0, lambda: self._show_command_output(f"Error: {exc}", 1))
                 self.root.after(0, lambda: self.status_var.set(f"{title} failed"))
@@ -537,7 +592,7 @@ class SDRDopplerGUI:
             self.progress_bar.stop()
             self.progress_bar.grid()
 
-    def _show_command_output(self, output: str, return_code: int):
+    def _show_command_output(self, output: str, return_code: int, open_results: bool = True):
         self.progress_bar.stop()
         self.progress_bar.configure(mode="indeterminate")
         self.progress_text_var.set("Complete")
@@ -550,7 +605,7 @@ class SDRDopplerGUI:
             self.results_box.insert("end", "The command completed without any text output.")
         self.results_box.config(state="disabled")
 
-        if return_code == 0:
+        if return_code == 0 and open_results:
             self._refresh_result_panel()
             self._refresh_image_preview()
             self._open_results_window()

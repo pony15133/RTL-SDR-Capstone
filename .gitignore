@@ -30,3 +30,6 @@ recordings/
 *.sigmf-data
 *.raw
 *.wav
+
+# TLE cache written by auto_capture.py
+tle_cache/
