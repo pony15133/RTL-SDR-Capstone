@@ -37,6 +37,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 
 from features.extractor import FEATURE_NAMES
+from features.waterfall_features import WATERFALL_FEATURE_NAMES
 from ml.evaluation import (
     compute_metrics,
     cross_validate,
@@ -48,6 +49,11 @@ from ml.evaluation import (
 from ml.model import ModelBundle
 
 REQUIRED_COLUMNS = ("capture_id", *FEATURE_NAMES, "label")
+
+#: --feature-set choices: "iq" = spectrogram features from raw IQ (features/extractor.py),
+#: "waterfall" = Doppler-corrected standard-waterfall features (features/waterfall_features.py),
+#: used for the SatNOGS-trained model.
+FEATURE_SETS = {"iq": FEATURE_NAMES, "waterfall": WATERFALL_FEATURE_NAMES}
 SYNTHETIC_COLUMN = "is_synthetic"
 
 DEFAULT_RANDOM_STATE = 42
@@ -112,16 +118,16 @@ def _invalid_value_mask(series: pd.Series) -> pd.Series:
     return is_missing | is_inf
 
 
-def validate_dataset(df: pd.DataFrame) -> None:
+def validate_dataset(df: pd.DataFrame, feature_names=FEATURE_NAMES) -> None:
     """Raise DatasetValidationError with a clear, actionable message on any problem."""
-    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    missing = [c for c in ("capture_id", *feature_names, "label") if c not in df.columns]
     if missing:
         raise DatasetValidationError(f"Dataset is missing required column(s): {', '.join(missing)}")
     if df.empty:
         raise DatasetValidationError("Dataset has no rows")
 
     problems = []
-    for col in (*FEATURE_NAMES, "label"):
+    for col in (*feature_names, "label"):
         bad_rows = df.index[_invalid_value_mask(df[col])]
         if len(bad_rows) > 0:
             ids = df.loc[bad_rows, "capture_id"].tolist()
@@ -161,14 +167,14 @@ def check_synthetic_guard(df: pd.DataFrame, allow_synthetic: bool) -> bool:
     return True
 
 
-def load_dataset(csv_path) -> pd.DataFrame:
+def load_dataset(csv_path, feature_names=FEATURE_NAMES) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
-    validate_dataset(df)
+    validate_dataset(df, feature_names)
     return df
 
 
-def split_features_labels(df: pd.DataFrame):
-    X = df[list(FEATURE_NAMES)].to_numpy(dtype=float)
+def split_features_labels(df: pd.DataFrame, feature_names=FEATURE_NAMES):
+    X = df[list(feature_names)].to_numpy(dtype=float)
     y = df["label"].to_numpy(dtype=int)
     return X, y
 
@@ -402,11 +408,12 @@ def _label_counts(y: np.ndarray) -> dict:
 def run_training(args: argparse.Namespace) -> TrainingResult:
     dataset_path = Path(args.dataset)
     print_progress("Loading training dataset", 10, 100)
-    df = load_dataset(dataset_path).reset_index(drop=True)
+    feature_names = FEATURE_SETS[getattr(args, "feature_set", "iq")]
+    df = load_dataset(dataset_path, feature_names).reset_index(drop=True)
     trained_on_synthetic_data = check_synthetic_guard(df, args.allow_synthetic)
 
     print_progress("Splitting train / validation / test", 25, 100)
-    X, y = split_features_labels(df)
+    X, y = split_features_labels(df, feature_names)
     groups, group_source = resolve_groups(df)
     if group_source != "row" and np.unique(groups).size < 3:
         print(
@@ -468,7 +475,7 @@ def run_training(args: argparse.Namespace) -> TrainingResult:
     )
     cv_result["data"] = "train+validation (test set excluded)"
 
-    importance_report = feature_importance_report(model, FEATURE_NAMES)
+    importance_report = feature_importance_report(model, feature_names)
     label_distribution = _label_counts(y)
     split_summary = {
         name: {
@@ -511,7 +518,8 @@ def run_training(args: argparse.Namespace) -> TrainingResult:
         "disclaimer": VALIDATION_DISCLAIMER,
     }
 
-    bundle = ModelBundle(classifier=model, feature_names=FEATURE_NAMES, metadata=metadata)
+    metadata["feature_set"] = getattr(args, "feature_set", "iq")
+    bundle = ModelBundle(classifier=model, feature_names=tuple(feature_names), metadata=metadata)
     model_path = bundle.save(Path(args.output))
     metadata_path = ModelBundle.metadata_path_for(model_path)
 
@@ -557,6 +565,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset", required=True, type=Path, help="Path to labelled training CSV")
     parser.add_argument("--output", required=True, type=Path, help="Path to save the trained model (.joblib)")
     parser.add_argument("--model-version", default=None, help="Explicit model version string (default: timestamp-based)")
+    parser.add_argument("--feature-set", choices=sorted(FEATURE_SETS), default="iq",
+                        help="iq: raw-IQ spectrogram features (default); waterfall: standard-waterfall features "
+                             "(SatNOGS-trained model)")
     parser.add_argument("--val-size", type=float, default=DEFAULT_VAL_SIZE,
                         help="Fraction of recordings held out for hyperparameter selection (default 0.15)")
     parser.add_argument("--test-size", type=float, default=DEFAULT_TEST_SIZE,

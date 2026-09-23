@@ -152,3 +152,22 @@ def test_position_history_and_status_log_are_stored(tmp_path, config, tle_file):
     assert track[0]["norad_id"] == pp.target.norad_id
     states = [(e["component"], e["state"]) for e in list_status(tmp_path / "c.sqlite3")]
     assert ("scheduler", "WAITING") in states and ("recorder", "SUCCESS") in states and ("pipeline", "DONE") in states
+
+
+def test_offset_tuning_doppler_and_waterfall_are_recorded(tmp_path, config, tle_file):
+    from database import get_result
+
+    s = _settings(config, "--simulate", "--db", str(tmp_path / "c.sqlite3"), "--results-dir", str(tmp_path / "res"))
+    s.pre_buffer = s.post_buffer = 0.2
+    now = datetime.now(timezone.utc)
+    pp = _pp("ISS", now + timedelta(seconds=0.5), 1 / 60, 40)
+    pp.tle = load_tle_file(tle_file)
+    summary = auto_capture.run_plan([pp], s)[0]
+
+    row = get_result(tmp_path / "c.sqlite3", summary["db_row"])
+    assert row["target_frequency_hz"] == pp.target.frequency_hz
+    assert row["frequency_hz"] == pp.target.frequency_hz - 150_000      # tuned below: DC spike away from signal
+    assert row["doppler_corrected"] == 1 and row["doppler_max_hz"] > 0
+    assert summary["doppler_corrected"] is True
+    assert row["waterfall_image_path"] and Path(row["waterfall_image_path"]).exists()
+    assert summary["waterfall_ml"] in ("MODEL_NOT_AVAILABLE", "AVAILABLE")

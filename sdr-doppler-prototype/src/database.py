@@ -61,6 +61,13 @@ CAPTURE_COLUMNS = {
 #: whether detection ran at all - failed/busy recordings are logged too, so
 #: every recorder run leaves a row.
 RETENTION_COLUMNS = {
+    "target_frequency_hz": "INTEGER",
+    "doppler_corrected": "INTEGER",
+    "doppler_max_hz": "REAL",
+    "wf_ml_detection_result": "INTEGER",
+    "wf_ml_confidence_score": "REAL",
+    "wf_model_version": "TEXT",
+    "waterfall_image_path": "TEXT",
     "processing_status": "TEXT",
     "iq_retention": "TEXT",
     "retention_reason": "TEXT",

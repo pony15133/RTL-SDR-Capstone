@@ -50,6 +50,8 @@ from detect import detect_candidate  # noqa: E402
 from detection.ml_detector import run_ml_detection  # noqa: E402
 from features.extractor import extract_features  # noqa: E402
 from iq_io import IQReader  # noqa: E402
+from detection.waterfall_detector import predict_waterfall  # noqa: E402
+from doppler import STANDARD_SPAN_HZ, DopplerCurve, standard_waterfall  # noqa: E402
 from retention import DEFAULT_KEEP_THRESHOLD, DEFAULT_POLICY, POLICIES  # noqa: E402
 from retention import apply as retention_apply  # noqa: E402
 from retention import decide as retention_decide  # noqa: E402
@@ -77,6 +79,10 @@ class PipelineResult:
     skipped_reason: Optional[str] = None
     retention_action: Optional[str] = None
     final_iq_path: Optional[str] = None
+    wf_status: Optional[str] = None
+    wf_confidence_score: Optional[float] = None
+    waterfall_image: Optional[str] = None
+    doppler_corrected: bool = False
 
     @property
     def success(self) -> bool:
@@ -88,6 +94,33 @@ def load_raw_iq_as_complex(iq_path: Path) -> "np.ndarray":  # noqa: F821
     as complex64. Kept for callers/tests; the work is done by src/iq_io.py."""
     with IQReader(iq_path, "cu8") as reader:
         return reader.read_all()
+
+
+def save_waterfall_image(matrix, path: Path, target_hz: float, doppler: Optional[DopplerCurve]) -> Path:
+    """PNG of the standard waterfall (what a person checks, and what the dashboard shows)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    import numpy as np
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    half_khz = STANDARD_SPAN_HZ / 2e3
+    fig, ax = plt.subplots(figsize=(5, 7))
+    vmin, vmax = np.percentile(matrix, [5, 99.7])
+    ax.imshow(matrix, aspect="auto", origin="upper", cmap="viridis", vmin=vmin, vmax=vmax,
+              extent=[-half_khz, half_khz, 1.0, 0.0])
+    ax.set_xlabel(f"kHz from {target_hz / 1e6:.4f} MHz")
+    ax.set_ylabel("fraction of recording")
+    title = "Doppler-corrected" if doppler is not None else "not Doppler-corrected (no pass prediction)"
+    if doppler is not None:
+        title += f" (max {doppler.max_abs_hz / 1e3:.1f} kHz)"
+    ax.set_title(title, fontsize=9)
+    fig.tight_layout()
+    fig.savefig(path, dpi=90)
+    plt.close(fig)
+    return path
 
 
 def recording_metadata_columns(result: RecordingResult, *, frequency_hz=None, sample_rate_hz=None) -> dict:
@@ -166,6 +199,9 @@ def process_recording(
     archive_dir: Optional[Path] = None,
     log_failures: bool = False,
     max_detection_seconds: Optional[float] = 120.0,
+    target_frequency_hz: Optional[float] = None,
+    doppler: Optional[DopplerCurve] = None,
+    waterfall_model_path: Optional[Path] = None,
 ) -> PipelineResult:
     """Run detection on a completed recording, store the result in the DB,
     then keep/archive/delete the IQ file according to ``retention_policy``.
@@ -176,6 +212,12 @@ def process_recording(
 
     ``max_detection_seconds`` bounds memory on very long passes: detection
     runs on the first N seconds (the whole file is still kept/moved as one).
+
+    ``target_frequency_hz`` is the satellite's downlink when the recorder
+    was tuned off-frequency (offset tuning keeps the RTL-SDR's DC spike away
+    from the signal); ``doppler`` is the predicted Doppler curve for the
+    recording. With them, a Doppler-corrected standard waterfall centred on
+    the downlink is built and scored by the SatNOGS-trained waterfall model.
     """
     pr = PipelineResult(recording=result)
     if not result.success or not result.output_file:
@@ -221,7 +263,27 @@ def process_recording(
         )
     summary_path = save_summary(output_dir, input_path, timestamp, detection, ml_detection)
 
-    decision = retention_decide(ml_detection=ml_detection, rule_detection=detection, threshold=keep_threshold)
+    # Doppler-corrected, SatNOGS-style waterfall around the downlink + the waterfall model.
+    wf_detection = None
+    wf_image = None
+    target = float(target_frequency_hz or frequency_hz)
+    try:
+        with IQReader(input_path, "cu8") as wf_reader:
+            wf_matrix = standard_waterfall(wf_reader, sample_rate_hz, offset_hz=target - frequency_hz, doppler=doppler)
+        wf_detection = None if no_ml else predict_waterfall(waterfall_model_path, wf_matrix)
+        wf_image = save_waterfall_image(wf_matrix, output_dir / f"{safe_stem(input_path)}_{timestamp.replace(':', '')}"
+                                        f"_waterfall.png", target, doppler)
+    except ValueError as exc:  # e.g. a very short or narrow recording
+        wf_matrix = None
+        wf_status_note = f"no standard waterfall: {exc}"
+    else:
+        wf_status_note = None
+
+    # Prefer the waterfall model (trained on many real SatNOGS passes), then the IQ model, then the rule.
+    preferred = wf_detection if (wf_detection is not None and wf_detection.ml_confidence_score is not None) else ml_detection
+    decision = retention_decide(ml_detection=preferred, rule_detection=detection, threshold=keep_threshold)
+    if preferred is wf_detection and wf_detection is not None:
+        decision.source = "waterfall-ml"
 
     row = {
         "input_file": str(input_path),
@@ -240,6 +302,14 @@ def process_recording(
         "ml_confidence_score": ml_detection.ml_confidence_score if ml_detection else None,
         "model_version": ml_detection.model_version if ml_detection else None,
         "processing_status": "DETECTED",
+        "target_frequency_hz": int(target),
+        "doppler_corrected": int(doppler is not None),
+        "doppler_max_hz": doppler.max_abs_hz if doppler is not None else None,
+        "wf_ml_detection_result": None if wf_detection is None or wf_detection.ml_detection_result is None
+        else int(wf_detection.ml_detection_result),
+        "wf_ml_confidence_score": wf_detection.ml_confidence_score if wf_detection else None,
+        "wf_model_version": wf_detection.model_version if wf_detection else None,
+        "waterfall_image_path": str(wf_image) if wf_image else None,
         "decision_source": decision.source,
         "decision_score": decision.score,
         **recording_metadata_columns(result, frequency_hz=frequency_hz, sample_rate_hz=sample_rate_hz),
@@ -263,6 +333,10 @@ def process_recording(
     pr.summary_path = str(summary_path)
     pr.spectrogram_image = str(image_path) if image_path else None
     pr.retention_action = outcome.action
+    pr.wf_status = wf_detection.status if wf_detection else (wf_status_note or "SKIPPED")
+    pr.wf_confidence_score = wf_detection.ml_confidence_score if wf_detection else None
+    pr.waterfall_image = str(wf_image) if wf_image else None
+    pr.doppler_corrected = doppler is not None
     pr.final_iq_path = outcome.final_path
     return pr
 

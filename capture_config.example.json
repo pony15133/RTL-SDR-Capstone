@@ -16,11 +16,28 @@
     "retention": "archive-negatives",
     "keep_threshold": 0.5,
     "ml_model": "sdr-doppler-prototype/models/random_forest.joblib",
-    "save_image": true
+    "save_image": true,
+    "tuning_offset_hz": 150000,
+    "waterfall_model": "sdr-doppler-prototype/models/waterfall_rf.joblib"
   },
   "satellites": [
-    {"name": "ISS", "norad_id": 25544, "frequency_hz": 145800000, "gain": 30},
-    {"name": "METEOR-M2-3", "norad_id": 57166, "frequency_hz": 137900000, "gain": 30},
-    {"name": "METEOR-M2-4", "norad_id": 59051, "frequency_hz": 137900000, "gain": 30}
+    {
+      "name": "ISS",
+      "norad_id": 25544,
+      "frequency_hz": 145800000,
+      "gain": 30
+    },
+    {
+      "name": "METEOR-M2-3",
+      "norad_id": 57166,
+      "frequency_hz": 137900000,
+      "gain": 30
+    },
+    {
+      "name": "METEOR-M2-4",
+      "norad_id": 59051,
+      "frequency_hz": 137900000,
+      "gain": 30
+    }
   ]
 }

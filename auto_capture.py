@@ -41,6 +41,7 @@ from typing import List, Optional
 import pipeline  # noqa: F401  (sets up sys.path for both subprojects)
 from config import DB_PATH
 from database import insert_pass_positions, log_status
+from doppler import doppler_curve_from_pass
 from pipeline import process_recording
 from retention import POLICIES
 from rtl_recorder.config import RecorderConfig
@@ -77,6 +78,8 @@ class Settings:
     tle_file: Optional[str] = None
     tle_cache_dir: str = "tle_cache"
     save_image: bool = True
+    tuning_offset_hz: float = 150_000.0
+    waterfall_model: Optional[str] = None
     device_index: int = 0
     rtl_sdr_path: Optional[str] = None
     simulate: bool = False
@@ -153,6 +156,8 @@ def load_settings(args) -> Settings:
         tle_cache_dir=str(pick("tle_cache_dir", "tle_cache")),
         save_image=not args.no_image and bool(defaults.get("save_image", True)),
         device_index=int(pick("device_index", 0)),
+        tuning_offset_hz=float(pick("tuning_offset_hz", 150_000.0)),
+        waterfall_model=pick("waterfall_model", None),
         rtl_sdr_path=pick("rtl_sdr_path", None),
         simulate=bool(args.simulate or args.demo),
     )
@@ -249,13 +254,26 @@ def run_plan(plan: List[PlannedPass], settings: Settings, *, stop_event: Optiona
         p, t = pp.pass_, pp.target
         logger.info("Next: %s", p.describe())
         log_status(db_path, "scheduler", "WAITING", p.describe())
+        # Offset tuning: record a little below the downlink so the RTL-SDR's DC spike
+        # (always at the tuned centre) can't be mistaken for the satellite.
+        tuned_hz = int(t.frequency_hz - settings.tuning_offset_hz)
         result = recorder.record_pass(
-            satellite_name=t.name, norad_id=t.norad_id, frequency_hz=t.frequency_hz, sample_rate=t.sample_rate,
+            satellite_name=t.name, norad_id=t.norad_id, frequency_hz=tuned_hz, sample_rate=t.sample_rate,
             gain=t.gain, aos=p.aos, los=p.los, pre_buffer=settings.pre_buffer, post_buffer=settings.post_buffer,
             **(record_kwargs or {}),
         )
+        doppler = None
+        if pp.tle is not None and result.success and result.actual_recording_start:
+            try:
+                start = datetime.fromisoformat(result.actual_recording_start)
+                doppler = doppler_curve_from_pass(make_propagator(pp.tle), settings.station, t.frequency_hz, start,
+                                                  float(result.recording_duration_seconds or p.duration_seconds))
+            except Exception as exc:  # correction is an improvement, never a blocker
+                logger.warning("No Doppler curve for %s: %s", t.name, exc)
         pr = process_recording(
-            result, frequency_hz=t.frequency_hz, sample_rate_hz=t.sample_rate,
+            result, frequency_hz=tuned_hz, sample_rate_hz=t.sample_rate,
+            target_frequency_hz=t.frequency_hz, doppler=doppler,
+            waterfall_model_path=Path(settings.waterfall_model) if settings.waterfall_model else None,
             db_path=Path(settings.db_path) if settings.db_path else None,
             output_dir=Path(settings.results_dir) if settings.results_dir else None,
             ml_model_path=Path(settings.ml_model) if settings.ml_model else None,
@@ -283,6 +301,8 @@ def run_plan(plan: List[PlannedPass], settings: Settings, *, stop_event: Optiona
             "db_row": pr.result_id, "rule_detected": pr.detected, "ml_status": pr.ml_status,
             "ml_confidence": pr.ml_confidence_score, "iq_retention": pr.retention_action,
             "iq_path": pr.final_iq_path, "spectrogram": pr.spectrogram_image, "track_points": track_points,
+            "doppler_corrected": pr.doppler_corrected, "waterfall_ml": pr.wf_status,
+            "waterfall_confidence": pr.wf_confidence_score, "waterfall_image": pr.waterfall_image,
         }
         summaries.append(summary)
         logger.info("Done: %s status=%s db_row=%s retention=%s", t.name, result.status.value, pr.result_id,
@@ -352,7 +372,9 @@ def main(argv=None) -> int:
         all_summaries += summaries
         for s in summaries:
             print(f"- {s['satellite']} {s['aos']}: {s['recording_status']}, db row {s['db_row']}, "
-                  f"rule={s['rule_detected']}, ml={s['ml_status']} {s['ml_confidence']}, IQ {s['iq_retention']}")
+                  f"rule={s['rule_detected']}, ml={s['ml_status']} {s['ml_confidence']}, "
+                  f"waterfall-ml={s['waterfall_ml']} {s['waterfall_confidence']}, "
+                  f"doppler={'corrected' if s['doppler_corrected'] else 'n/a'}, IQ {s['iq_retention']}")
         if args.demo or not args.forever:
             break
         if not any(pp.skipped_reason is None for pp in plan):
