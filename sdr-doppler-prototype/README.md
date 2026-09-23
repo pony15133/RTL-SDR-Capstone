@@ -80,6 +80,16 @@ python src/main.py \
 
 The notebook material this prototype was based on saved spectrogram text files with time rows and frequency columns. This prototype uses the same assumption for text matrices.
 
+### Converting SigMF captures
+
+If your capture is in [SigMF](https://github.com/sigmf/SigMF) format (a `.sigmf-meta` JSON file plus a sibling `.sigmf-data` raw binary file - common when downloading third-party SDR datasets), convert it to a project-ready `.npy` first:
+
+```bash
+python scripts/convert_sigmf_to_iq.py --meta capture.sigmf-meta --data capture.sigmf-data --output data/raw/capture.npy
+```
+
+This reads `global."core:datatype"` from the metadata (`ci16_le`, `cu8`, `cf32_le`, etc. - any complex SigMF datatype) to interpret the raw bytes, deinterleaves I/Q, scales integer formats to roughly `[-1, 1]` (unsigned formats like `cu8` are DC-centred the same way RTL-SDR's own native format is), and writes a `complex64` `.npy` that `main.py`/`label_capture.py`/the other tools all already understand. It also prints `core:sample_rate` and the first capture's `core:frequency` from the metadata, if present, as a reminder of what to pass as `--sample-rate`/`--center-freq` downstream - the SigMF metadata isn't embedded in the `.npy` itself. A real-valued (non-IQ) SigMF file is rejected with a clear error rather than silently misread. This is also wired up as the "Convert SigMF" option in `gui_app.py`.
+
 ## Machine Learning Component
 
 **Status: IMPLEMENTED BUT NOT VALIDATED.** The Random Forest pipeline is fully operational, but no model has been trained on real, labelled RTL-SDR captures yet - only synthetic data (clearly marked as such) has been used to verify the pipeline runs correctly. Do not treat any evaluation metrics produced so far as real-world accuracy.
@@ -158,6 +168,16 @@ python scripts/label_capture.py --input <capture> --dataset data/training/featur
 ```
 
 Runs the pipeline on a real capture, shows both detectors' opinions and the extracted features, and appends your label to the dataset (always `is_synthetic=0`). See `data/training/README.md` for the full collection workflow (recording real passes vs. negative examples, minimum dataset size guidance, etc.).
+
+For a whole folder of raw captures at once (instead of one file per command), use `scripts/build_training_dataset.py` - it labels each file from a manifest CSV, a `positive`/`negative` folder convention, or a single `--label` for the whole folder, then appends all of them to the same training CSV:
+
+```bash
+python scripts/build_training_dataset.py --input-dir /path/to/captures --recursive \
+  --labels-csv data/training/my_labels.csv --dataset data/training/features.csv \
+  --sample-rate 2400000 --center-freq 137900000 --binary-dtype complex64
+```
+
+Training itself is unchanged either way - both tools write the same CSV schema, so `train_model.py --dataset data/training/features.csv --output models/random_forest.joblib` works regardless of how the CSV was built. See `data/training/README.md` for the three label-source modes in detail.
 
 ## Database
 
