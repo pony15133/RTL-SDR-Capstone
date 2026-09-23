@@ -136,6 +136,46 @@ def split_features_labels(df: pd.DataFrame):
     return X, y
 
 
+def grouped_train_test_split(
+    df: pd.DataFrame,
+    *,
+    test_size: float = DEFAULT_TEST_SIZE,
+    random_state: int = DEFAULT_RANDOM_STATE,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Split by recording group to avoid leakage from multiple rows in the same capture.
+
+    When a `recording_id` column is present, the split is performed at the
+    recording-group level, not the row level. This keeps all rows from the same
+    recording in either the training or test set, which avoids inflated metrics
+    caused by data leakage.
+    """
+    if not 0 < test_size < 1:
+        raise ValueError(f"test_size must be between 0 and 1, got {test_size!r}")
+
+    if "recording_id" not in df.columns:
+        indices = df.index.to_numpy()
+        train_idx, test_idx = train_test_split(indices, test_size=test_size, random_state=random_state)
+        return train_idx, test_idx
+
+    unique_recordings = df["recording_id"].drop_duplicates().to_numpy()
+    if unique_recordings.size < 2:
+        raise ValueError("At least two unique recording_id values are required for a train/test split.")
+
+    rng = np.random.default_rng(random_state)
+    shuffled = unique_recordings[rng.permutation(unique_recordings.size)]
+    n_test_groups = max(1, int(round(shuffled.size * test_size)))
+    test_groups = shuffled[:n_test_groups]
+    train_groups = shuffled[n_test_groups:]
+
+    train_idx = df.index[df["recording_id"].isin(train_groups)].to_numpy()
+    test_idx = df.index[df["recording_id"].isin(test_groups)].to_numpy()
+
+    if train_idx.size == 0 or test_idx.size == 0:
+        raise ValueError("Grouped train/test split produced an empty train or test set.")
+
+    return train_idx, test_idx
+
+
 def train_random_forest(X_train, y_train, *, n_estimators, max_depth, class_weight, random_state) -> RandomForestClassifier:
     model = RandomForestClassifier(
         n_estimators=n_estimators,
@@ -149,37 +189,52 @@ def train_random_forest(X_train, y_train, *, n_estimators, max_depth, class_weig
 
 def run_training(args: argparse.Namespace) -> TrainingResult:
     dataset_path = Path(args.dataset)
+    print_progress("Loading training dataset", 15, 100)
     df = load_dataset(dataset_path)
     trained_on_synthetic_data = check_synthetic_guard(df, args.allow_synthetic)
 
+    print_progress("Preparing training features", 35, 100)
     X, y = split_features_labels(df)
 
     classes, class_counts = np.unique(y, return_counts=True)
     can_stratify = len(classes) > 1 and class_counts.min() >= 2
     X_train = X_test = y_train = y_test = None
-    if can_stratify:
+    if "recording_id" in df.columns:
         try:
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=args.test_size, random_state=args.random_state, stratify=y,
+            train_idx, test_idx = grouped_train_test_split(
+                df,
+                test_size=args.test_size,
+                random_state=args.random_state,
             )
+            X_train, X_test = X[train_idx], X[test_idx]
+            y_train, y_test = y[train_idx], y[test_idx]
         except ValueError as exc:
-            # Stratification needs each class represented in both the train
-            # and test splits; a tiny dataset can fail that even when each
-            # class individually has >= 2 examples (e.g. 4 rows total).
-            print(f"WARNING: stratified split not possible ({exc}) - splitting without stratification.", file=sys.stderr)
+            print(f"WARNING: grouped split not possible ({exc}) - falling back to row-level split.", file=sys.stderr)
     if X_train is None:
         if can_stratify:
-            pass  # warning already printed above
-        else:
-            print(
-                "WARNING: cannot stratify the train/test split (a class has fewer than 2 "
-                "examples, or only one class is present) - splitting without stratification.",
-                file=sys.stderr,
+            try:
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y, test_size=args.test_size, random_state=args.random_state, stratify=y,
+                )
+            except ValueError as exc:
+                # Stratification needs each class represented in both the train
+                # and test splits; a tiny dataset can fail that even when each
+                # class individually has >= 2 examples (e.g. 4 rows total).
+                print(f"WARNING: stratified split not possible ({exc}) - splitting without stratification.", file=sys.stderr)
+        if X_train is None:
+            if can_stratify:
+                pass  # warning already printed above
+            else:
+                print(
+                    "WARNING: cannot stratify the train/test split (a class has fewer than 2 "
+                    "examples, or only one class is present) - splitting without stratification.",
+                    file=sys.stderr,
+                )
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=args.test_size, random_state=args.random_state, stratify=None,
             )
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=args.test_size, random_state=args.random_state, stratify=None,
-        )
 
+    print_progress("Training Random Forest", 65, 100)
     model = train_random_forest(
         X_train, y_train,
         n_estimators=args.n_estimators,
@@ -188,6 +243,7 @@ def run_training(args: argparse.Namespace) -> TrainingResult:
         random_state=args.random_state,
     )
 
+    print_progress("Evaluating model", 85, 100)
     y_pred = model.predict(X_test)
     y_proba = None
     if 1 in model.classes_:
@@ -231,6 +287,7 @@ def run_training(args: argparse.Namespace) -> TrainingResult:
         chart_path = model_path.with_name(model_path.stem + "_feature_importance.png")
         save_feature_importance_chart(importance_report, chart_path)
 
+    print_progress("Saving trained model", 100, 100)
     return TrainingResult(
         model_path=model_path,
         metadata_path=metadata_path,
@@ -261,6 +318,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def print_progress(label: str, current: int, total: int) -> None:
+    if total <= 0:
+        total = 1
+    percent = min(100, max(0, int((current / total) * 100)))
+    width = 20
+    filled = int(width * percent / 100)
+    bar = "#" * filled + "-" * (width - filled)
+    print(f"{label}: {percent:3d}% |{bar}| {current}/{total}")
+
+
 def _print_report(result: TrainingResult) -> None:
     if result.trained_on_synthetic_data:
         print("=" * 78)
@@ -269,25 +336,41 @@ def _print_report(result: TrainingResult) -> None:
         print("Status: IMPLEMENTED BUT NOT VALIDATED.")
         print("=" * 78)
 
-    print(f"model_path={result.model_path}")
-    print(f"metadata_path={result.metadata_path}")
-    print(f"n_train={result.n_train} n_test={result.n_test}")
-    print(f"label_distribution={result.label_distribution}")
+    metadata = {
+        "model_version": result.model_path.stem,
+        "n_training_samples": result.n_train,
+        "n_test_samples": result.n_test,
+        "evaluation_metrics": result.metrics,
+        "cross_validation": result.cv_result,
+        "feature_importance": [{"feature": name, "importance": importance} for name, importance in result.importance_report],
+    }
+
     print()
-    print("Held-out test set metrics:")
-    for key in ("n_samples", "accuracy", "precision", "recall", "f1_score", "roc_auc"):
-        print(f"  {key}: {result.metrics[key]}")
+    print("Model training summary")
+    print("=====================")
+    print(f"Model path: {result.model_path}")
+    print(f"Metadata path: {result.metadata_path}")
+    print(f"Training samples: {result.n_train}")
+    print(f"Test samples: {result.n_test}")
+    print(f"Label distribution: {result.label_distribution}")
+    print(f"Accuracy: {result.metrics['accuracy']:.3f}")
+    print(f"Precision: {result.metrics['precision']:.3f}")
+    print(f"Recall: {result.metrics['recall']:.3f}")
+    print(f"F1 score: {result.metrics['f1_score']:.3f}")
+    if result.metrics.get("roc_auc") is not None:
+        print(f"ROC AUC: {result.metrics['roc_auc']:.3f}")
     print()
     print("Confusion matrix:")
     print(format_confusion_matrix(result.metrics["confusion_matrix"]))
     print()
     if result.cv_result.get("performed"):
-        print(f"{result.cv_result['folds']}-fold cross-validation F1: {result.cv_result['f1_mean']:.3f} +/- {result.cv_result['f1_std']:.3f}")
+        print(f"Cross-validation F1: {result.cv_result['f1_mean']:.3f} +/- {result.cv_result['f1_std']:.3f}")
     else:
-        print(f"Cross-validation skipped: {result.cv_result.get('reason')}")
+        print(f"Cross-validation: {result.cv_result.get('reason')}")
     print()
-    print("Feature importance:")
-    print(format_feature_importance(result.importance_report))
+    print("Top feature importances:")
+    for name, importance in result.importance_report[:5]:
+        print(f"- {name}: {importance:.4f}")
     print()
     print(VALIDATION_DISCLAIMER)
 
