@@ -104,6 +104,28 @@ def save_chunked_spectrogram_images(
     return chunk_paths
 
 
+#: Most time rows handed to matplotlib. The PNG is ~600 px tall, so more rows
+#: can't be seen - but imshow resamples the full float64 matrix first, which
+#: took ~7x the matrix size in memory (about 15 GB for a 120 s capture at
+#: 1.024 Msps). Averaging blocks of rows first keeps the picture the same.
+MAX_IMAGE_ROWS = 2000
+
+
+def rows_for_display(power_db: np.ndarray, max_rows: int = MAX_IMAGE_ROWS) -> np.ndarray:
+    """Average consecutive time rows so at most ``max_rows`` remain (image only -
+    detection always uses the full-resolution spectrogram). Works block by
+    block, so no full-size copy of the matrix is made."""
+    rows = power_db.shape[0]
+    if rows <= max_rows:
+        return power_db
+    factor = int(np.ceil(rows / max_rows))
+    n_out = int(np.ceil(rows / factor))
+    out = np.empty((n_out, power_db.shape[1]), dtype=float)
+    for i in range(n_out):
+        out[i] = power_db[i * factor:(i + 1) * factor].mean(axis=0)
+    return out
+
+
 def save_spectrogram_image(spec: SpectrogramData, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.figure(figsize=(10, 5))
@@ -113,7 +135,9 @@ def save_spectrogram_image(spec: SpectrogramData, output_path: Path) -> Path:
         spec.times_s[-1] if len(spec.times_s) else spec.power_db.shape[0],
         0,
     ]
-    plt.imshow(spec.power_db, aspect="auto", extent=extent, cmap="viridis")
+    # Colour range from the full-resolution matrix, so averaging doesn't change the scale.
+    vmin, vmax = (float(np.min(spec.power_db)), float(np.max(spec.power_db))) if spec.power_db.size else (None, None)
+    plt.imshow(rows_for_display(spec.power_db), aspect="auto", extent=extent, cmap="viridis", vmin=vmin, vmax=vmax)
     plt.xlabel("Frequency [MHz]")
     plt.ylabel("Time [s]")
     plt.colorbar(label="Power [dB]")
