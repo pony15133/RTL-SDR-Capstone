@@ -81,5 +81,10 @@ def main():
         print("Insert and retrieval values match.")
 
 
+def test_capture_metadata_round_trip():
+    """Lets pytest collect this check - it previously ran only as a script."""
+    main()
+
+
 if __name__ == "__main__":
     main()
