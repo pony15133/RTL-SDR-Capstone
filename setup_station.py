@@ -51,6 +51,8 @@ def main(argv=None) -> int:
                    help="With --fetch-satnogs: a large download (1500 per class over 120 days, METEOR/ISS first). "
                         "A few hours: it pauses when SatNOGS's hourly API allowance runs out and continues by "
                         "itself. Resumable - stop with Ctrl+C and run again to continue")
+    p.add_argument("--keep-awake", action="store_true",
+                   help="Windows: keep the computer from sleeping during the download (used by train_overnight.bat)")
     p.add_argument("--refresh-labels", action="store_true",
                    help="Relabel the saved SatNOGS observations from their waterfall vetting before training")
     p.add_argument("--skip-doctor", action="store_true")
@@ -85,7 +87,11 @@ def main(argv=None) -> int:
         per_class = args.per_class or (1500 if args.big_data else 200)
         cmd = fetch + ["--per-class", per_class]
         if args.big_data:
-            cmd += ["--days-back", 120, "--preset", "station"]
+            # Take up to 25 observations from each API page (the station cap keeps them varied):
+            # ~3x fewer requests against the SatNOGS hourly allowance.
+            cmd += ["--days-back", 120, "--preset", "station", "--per-window", 25]
+        if args.keep_awake:
+            cmd += ["--keep-awake"]
         if run(cmd, cwd=PROTO) != 0:
             problems.append("SatNOGS download stopped early - rerun setup with --fetch-satnogs to resume")
     if satnogs.exists():

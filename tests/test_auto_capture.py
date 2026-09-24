@@ -106,7 +106,7 @@ def test_run_plan_records_detects_and_logs_each_pass(tmp_path, config):
     assert [r[0] for r in rows] == ["SAT-A", "SAT-B"]
     assert all(r[1] for r in rows)                        # scheduled AOS recorded
     assert all(r[3] == "DETECTED" for r in rows)
-    assert all(r[2] in ("archived", "kept") for r in rows)
+    assert all(r[2] in ("archived", "kept", "kept for review") for r in rows)
 
 
 def test_skipped_and_past_passes_do_not_record(tmp_path, config):

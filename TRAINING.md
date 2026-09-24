@@ -22,6 +22,26 @@ This first downloads up to 150 "signal" and 150 "no signal" observations of the 
 
 **SatNOGS allows only a limited number of API requests per hour.** When that runs out, the downloader prints something like "asks us to pause 58 min", shows the time it will continue, counts down every 5 minutes and then carries on by itself. Nothing is frozen, and everything downloaded so far is saved. You can press Ctrl+C at any time and run the same command later to continue, or add `--no-wait` to stop at the first pause. A big run takes a few hours, so it's easiest to leave it running overnight.
 
+### Overnight
+
+```
+train_overnight.bat          (./train_overnight.sh on macOS/Linux)
+```
+
+This runs the same big download and then retrains. On the way it:
+
+- keeps the computer from sleeping until it's done, without changing any settings, and lets it sleep normally again afterwards
+- waits through the SatNOGS pauses by itself
+- writes everything to `logs\overnight_<date>.txt`, so in the morning you can send that file to see the results
+
+Keep the laptop plugged in with the lid open, because closing the lid can still put it to sleep. If it's stopped for any reason, run it again and it continues from where it left off.
+
+**About the limit.** It's SatNOGS's rule for a free service run by volunteers, so we stay within it rather than work around it. Using VPNs or several IP addresses to dodge it would likely get the station blocked. What the downloader does instead:
+
+- it takes up to 25 observations from every API page, which makes about 3× fewer requests
+- image downloads come from a separate file host and don't count against the limit
+- optionally, you can use your own free SatNOGS account: log in at network.satnogs.org, copy the API key from your profile, and run `setx SATNOGS_API_TOKEN <key>` once, then open a new terminal. The downloader then identifies itself with your account, and only to the SatNOGS API. SatNOGS doesn't document whether accounts get a bigger allowance, so treat it as a courtesy rather than a guaranteed speed-up.
+
 Only the 32 kB arrays are kept, not the PNGs: about 100 MB for 3,000 observations.
 
 Why more data: on the first 400 observations, a learning curve (train on 25/50/75/100 % of the stations, test on unseen stations) gave ROC-AUC 0.891 → 0.895 → 0.910 → 0.925. It was still climbing.

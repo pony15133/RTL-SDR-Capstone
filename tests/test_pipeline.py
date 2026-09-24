@@ -157,7 +157,8 @@ def test_failed_recording_is_logged_as_a_row(tmp_path):
 
 
 def test_archive_policy_moves_negative_recording_and_updates_row(tmp_path):
-    pr = _simulated(tmp_path, retention_policy="archive-negatives")  # random bytes -> no candidate
+    # two-level mode (uncertain band off): random bytes -> no candidate -> archived
+    pr = _simulated(tmp_path, retention_policy="archive-negatives", uncertain_band=None)
     row = get_result(tmp_path / "captures.sqlite3", pr.result_id)
 
     assert pr.detected is False
@@ -170,11 +171,43 @@ def test_archive_policy_moves_negative_recording_and_updates_row(tmp_path):
 
 
 def test_delete_policy_removes_negative_recording(tmp_path):
-    pr = _simulated(tmp_path, retention_policy="delete-negatives")
+    pr = _simulated(tmp_path, retention_policy="delete-negatives", uncertain_band=None)
     row = get_result(tmp_path / "captures.sqlite3", pr.result_id)
     assert row["iq_retention"] == "deleted"
     assert row["raw_iq_file_path"] is None
     assert not Path(pr.recording.output_file).exists()
+
+
+def test_rule_only_negative_is_uncertain_and_never_deleted(tmp_path):
+    """Without an ML prediction, 'nothing found' is not trusted enough to delete."""
+    pr = _simulated(tmp_path, retention_policy="delete-negatives")   # default band 0.3-0.7
+    row = get_result(tmp_path / "captures.sqlite3", pr.result_id)
+    assert row["detection_verdict"] == "uncertain" and row["review_status"] == "pending"
+    assert row["iq_retention"] == "kept for review"
+    assert Path(row["raw_iq_file_path"]).parent.name == "uncertain" and Path(row["raw_iq_file_path"]).exists()
+    assert Path(row["raw_iq_file_path"]).with_suffix(".json").exists()
+
+
+@pytest.mark.parametrize("score, verdict, action", [
+    (0.9, "detected", "kept"), (0.5, "uncertain", "kept for review"), (0.1, "not_detected", "deleted")])
+def test_three_levels_from_ml_confidence(tmp_path, score, verdict, action):
+    iq = tmp_path / "rec" / "pass.iq"
+    iq.parent.mkdir()
+    iq.write_bytes(b"\x80" * 100)
+    d = retention.decide(ml_detection=SimpleNamespace(ml_confidence_score=score), uncertain_band=(0.3, 0.7))
+    assert d.verdict == verdict
+    out = retention.apply(d, iq, policy="delete-negatives")
+    assert out.action == action
+    if verdict == "uncertain":
+        assert Path(out.final_path) == tmp_path / "rec" / "uncertain" / "pass.iq"
+
+
+def test_parse_band():
+    assert retention.parse_band([0.3, 0.7]) == (0.3, 0.7)
+    assert retention.parse_band("0.4,0.6") == (0.4, 0.6)
+    assert retention.parse_band("off") is None and retention.parse_band(None) is None
+    with pytest.raises(ValueError):
+        retention.parse_band([0.8, 0.2])
 
 
 def test_ml_confidence_drives_the_decision_when_available():

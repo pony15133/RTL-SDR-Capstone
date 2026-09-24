@@ -20,7 +20,7 @@ A check of every feature, in order. Each test gives the command, what you should
 | # | Do | Expect | ✓ |
 |---|---|---|---|
 | A1 | `setup.bat` (or `./setup.sh`) | Ends with "Setup finished". `capture_config.json` exists. `sdr-doppler-prototype\models\random_forest.joblib` is new | ☐ |
-| A2 | `python -m pytest` | About 357 passed, 3 deselected, 0 failed (2 skipped without the sgp4 package is fine) | ☐ |
+| A2 | `python -m pytest` | About 390 passed, 3 deselected, 0 failed (2 skipped without the sgp4 package is fine) | ☐ |
 | A3 | `python pipeline.py --doctor` | `[OK ]` for platform, output folder and Python packages. rtl_sdr/rtl_test are OK once the tools are installed | ☐ |
 | A4 | Rename `.venv` to `.venv-broken`, run `setup.bat` again | It builds a fresh `.venv` and finishes. Delete `.venv-broken` afterwards | ☐ |
 
@@ -109,16 +109,22 @@ A check of every feature, in order. Each test gives the command, what you should
 | I1 | Open `sdr-doppler-prototype\data\results\captures.sqlite3` in "DB Browser for SQLite" | Tables `capture_results`, `pass_positions`, `status_log` | ☐ |
 | I2 | Run E1 on an **old** copy of the database (e.g. `..\captures-backup.sqlite3` via `--db`) | Works; old rows keep their data, new columns are empty for them (migration) | ☐ |
 
-## J. Live dashboard
+## J. Web interface
 
 | # | Do | Expect | ✓ |
 |---|---|---|---|
-| J1 | `python dashboard.py --config capture_config.json`, open http://localhost:8050 | Page loads; "not running" (no heartbeat yet); totals and log match history.py | ☐ |
+| J1 | `python dashboard.py --config capture_config.json`, open http://localhost:8050 | Overview loads; "not running" (no heartbeat yet) with a warning; results match history.py | ☐ |
 | J2 | Second terminal: `python auto_capture.py --config capture_config.json --demo` | Within 5 s: "waiting for pass", then "recording" (recorder RECORDING), then a new row in Recent captures | ☐ |
 | J3 | Stop the demo, wait 2 minutes | "Now" shows "stalled?" or "stopped", not a frozen "recording" | ☐ |
 | J4 | Sky track box | A curve with a green start and red end once a capture has a track | ☐ |
 | J5 | `python dashboard.py --config capture_config.json --host 0.0.0.0`, open `http://<your-PC-IP>:8050` from a phone on the same Wi-Fi | Page loads (Windows may ask to allow it through the firewall) | ☐ |
 | J6 | Open `http://localhost:8050/image?path=C:\Windows\win.ini` | "not found": files outside the project aren't served | ☐ |
+| J7 | After the demo: Captures page → click the capture | Detail page: verdict, waterfall, scores, recording details, pass track, Doppler curve | ☐ |
+| J8 | Run the demo with every result counted as uncertain: `python auto_capture.py --config capture_config.json --demo --uncertain-band 0,1`; then Review page, press `1` | Toast "saved as signal · raw IQ kept (moved out of uncertain/)"; the capture leaves the queue; its IQ is back in `recordings/` | ☐ |
+| J9 | Settings: set the two band numbers to 0.8 and 0.2, Save | Refused with "Uncertain band must satisfy…"; nothing saved | ☐ |
+| J10 | Settings: change the station name, Save; open `capture_config.json` | Name changed; `capture_config.json.bak` holds the old version | ☐ |
+| J11 | Health page | ✓/✗ for rtl_sdr, rtl_test, SatDump, both models, disk, orbit data, capture loop; station events and log file | ☐ |
+| J12 | Narrow the browser to phone width | Menu moves to a top bar; every page still readable without sideways scrolling (tables scroll inside their card) | ☐ |
 
 ## K. Desktop GUI (`sdr-doppler-prototype\launch_gui.bat`)
 
@@ -150,6 +156,18 @@ A check of every feature, in order. Each test gives the command, what you should
 | M1 | On a Mac or Linux laptop: `./setup.sh`, `python -m pytest` | Same results as A1/A2 | ☐ |
 | M2 | `./run_station.sh --simulate` | Dashboard and schedule work | ☐ |
 
+## N. Three levels, decoding and unattended safety
+
+| # | Do | Expect | ✓ |
+|---|---|---|---|
+| N1 | `python sdr-doppler-prototype/src/history.py --review` | Only captures waiting for review, with the verdict and review columns | ☐ |
+| N2 | 📡 Install SatDump; after a kept METEOR pass open its capture → "Decode METEOR images" | Button shows "Decoding…"; later the METEOR images section and the Images page show pictures (or "no images" if the pass was weak) | ☐ |
+| N3 | `python sdr-doppler-prototype/src/decode.py --pending` | Every kept METEOR capture is decoded or gets a clear status | ☐ |
+| N4 | Set `"min_free_gb": 100000` in `capture_config.json`, run the demo | Pass skipped with "NOT ENOUGH SPACE"; a DISK_FULL event on the Health page; set it back to 2 | ☐ |
+| N5 | 📡 Unplug the dongle just before a pass starts, plug it back in after ~10 s | Health events show RETRY; the rest of the pass is recorded | ☐ |
+| N6 | Run `run_station.bat`, then close the capture window's Python with Task Manager | The window says "Restarting in 60 s" and the loop comes back | ☐ |
+| N7 | `logs\station.log` after a run | Log lines for planning, recording and processing | ☐ |
+
 ---
 
 ### Results summary
@@ -165,7 +183,8 @@ A check of every feature, in order. Each test gives the command, what you should
 | G Detection | | | |
 | H ML | | | |
 | I Database | | | |
-| J Dashboard | | | |
+| J Web interface | | | |
 | K GUI | | | |
 | L Real pass | | | |
 | M Other OS | | | |
+| N Levels / decoding / safety | | | |

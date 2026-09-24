@@ -76,7 +76,7 @@ def test_http_endpoints(tmp_path):
     base = f"http://127.0.0.1:{server.server_address[1]}"
     try:
         page = urllib.request.urlopen(base + "/").read().decode()
-        assert "Station Dashboard" in page
+        assert "Satellite Station" in page and "__STATION_TOKEN__" not in page
         status = json.loads(urllib.request.urlopen(base + "/api/status").read())
         assert "live" in status and "captures" in status
         try:
@@ -103,3 +103,128 @@ def test_auto_capture_writes_heartbeat(tmp_path):
     data = json.loads((tmp_path / "rec" / "live_status.json").read_text())
     live.stop()
     assert data["phase"] == "planned" and data["station"]["name"] == "Singapore campus"
+
+
+# --------------------------------------------------------------------------- web interface API
+
+def _serve(state):
+    server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.make_handler(state))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}"
+
+
+def _req(url, body=None, token=None, host=None):
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["X-Station-Token"] = token
+    if host:
+        headers["Host"] = host
+    req = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(), headers=headers,
+                                 method="GET" if body is None else "POST")
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        raw = exc.read()
+        try:
+            return exc.code, json.loads(raw)
+        except ValueError:
+            return exc.code, raw.decode()
+
+
+def _uncertain_capture(st, tmp_path):
+    iq = tmp_path / "rec" / "uncertain" / "m.iq"
+    iq.parent.mkdir(parents=True)
+    iq.write_bytes(b"\x80" * 32)
+    return insert_result(st.db, {"input_file": str(iq), "timestamp_utc": "2026-09-24T10:00:00+00:00",
+                                 "detection_result": 0, "confidence_score": 0.1, "valid_signal_ratio": 0.1,
+                                 "frequency_drift_hz": 0.0, "smoothness_score": 1.0, "satellite_name": "METEOR-M2-3",
+                                 "recording_status": "SUCCESS", "detection_verdict": "uncertain",
+                                 "review_status": "pending", "raw_iq_file_path": str(iq)})
+
+
+def test_review_and_label_through_the_api(tmp_path, monkeypatch):
+    import review
+
+    monkeypatch.setattr(review, "STATION_DATASET", tmp_path / "station.csv")
+    st = _state(tmp_path)
+    cid = _uncertain_capture(st, tmp_path)
+    server, base = _serve(st)
+    try:
+        code, d = _req(base + "/api/review")
+        assert code == 200 and [c["id"] for c in d["pending"]] == [cid]
+        code, d = _req(base + f"/api/capture/{cid}")
+        assert d["capture"]["detection_verdict"] == "uncertain" and d["iq_exists"]
+        code, d = _req(base + f"/api/capture/{cid}/label", {"label": 1})      # no token -> refused
+        assert code == 403
+        code, d = _req(base + f"/api/capture/{cid}/label", {"label": 1, "reviewer": "anh"}, token=st.token)
+        assert code == 200 and d["iq_action"].startswith("kept")
+        assert (tmp_path / "rec" / "m.iq").exists()
+        assert _req(base + "/api/review")[1]["pending"] == []
+        assert st.totals()["pending_review"] == 0
+    finally:
+        server.shutdown()
+
+
+def test_foreign_host_is_refused(tmp_path):
+    st = _state(tmp_path)
+    server, base = _serve(st)
+    try:
+        assert _req(base + "/api/status", host="evil.example")[0] == 403
+        assert _req(base + "/api/status", host="localhost:8050")[0] == 200
+    finally:
+        server.shutdown()
+
+
+def test_settings_are_validated_and_saved_with_backup(tmp_path):
+    cfg_path = tmp_path / "capture_config.json"
+    cfg = json.loads((ROOT / "capture_config.example.json").read_text())
+    cfg_path.write_text(json.dumps(cfg))
+    (tmp_path / "rec").mkdir()
+    st = dashboard.DashboardState(cfg, tmp_path / "c.sqlite3", ROOT, cfg_path)
+    server, base = _serve(st)
+    try:
+        bad = json.loads(json.dumps(cfg))
+        bad["station"]["lat_deg"] = 123
+        bad["recording"]["uncertain_band"] = [0.8, 0.2]
+        bad["satellites"][0]["frequency_hz"] = 5e9
+        code, d = _req(base + "/api/config", {"config": bad}, token=st.token)
+        assert code == 400 and len(d["problems"]) == 3
+        good = json.loads(json.dumps(cfg))
+        good["recording"]["retention"] = "delete-negatives"
+        good["recording"]["uncertain_band"] = [0.35, 0.65]
+        code, d = _req(base + "/api/config", {"config": good}, token=st.token)
+        assert code == 200 and d["ok"]
+        saved = json.loads(cfg_path.read_text())
+        assert saved["recording"]["retention"] == "delete-negatives" and saved["_readme"] == cfg["_readme"]
+        assert json.loads(cfg_path.with_suffix(".json.bak").read_text())["recording"]["retention"] == "archive-negatives"
+    finally:
+        server.shutdown()
+
+
+def test_files_are_served_only_from_project_folders(tmp_path):
+    st = _state(tmp_path)
+    iq = tmp_path / "rec" / "a.iq"
+    iq.write_bytes(b"abc")
+    server, base = _serve(st)
+    try:
+        from urllib.parse import quote
+
+        assert urllib.request.urlopen(base + "/file?path=" + quote(str(iq))).read() == b"abc"
+        assert _req(base + "/file?path=/etc/passwd")[0] == 404
+        assert _req(base + "/image?path=" + quote(str(iq)))[0] == 404          # not an image type
+    finally:
+        server.shutdown()
+
+
+def test_health_and_pages_render(tmp_path):
+    st = _state(tmp_path)
+    h = st.health()
+    names = [c["name"] for c in h["checks"]]
+    assert "rtl_sdr" in names and "SatDump (METEOR images)" in names and "Disk space" in names
+    server, base = _serve(st)
+    try:
+        for path in ("/app.js", "/style.css", "/api/passes", "/api/images", "/api/captures?verdict=detected", "/api/health"):
+            assert urllib.request.urlopen(base + path).status == 200
+    finally:
+        server.shutdown()

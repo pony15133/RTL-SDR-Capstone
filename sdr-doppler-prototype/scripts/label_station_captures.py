@@ -37,51 +37,11 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from config import DB_PATH  # noqa: E402
 from database import list_results  # noqa: E402
-from features.waterfall_features import WATERFALL_FEATURE_NAMES, waterfall_features  # noqa: E402
+from features.waterfall_features import WATERFALL_FEATURE_NAMES  # noqa: E402,F401
+
+from review import COLUMNS, META, append, labelled_ids, make_row, matrix_path, resolve  # noqa: E402,F401  (shared with the web UI)
 
 DEFAULT_OUTPUT = ROOT / "data" / "training" / "station_waterfall_features.csv"
-META = ["db_id", "satellite_name", "norad_id", "scheduled_aos", "actual_recording_start", "wf_ml_confidence_score",
-        "waterfall_image_path", "labelled_by", "notes"]
-COLUMNS = ["capture_id", *WATERFALL_FEATURE_NAMES, "label", "is_synthetic", "recording_id", "source_file", *META]
-
-
-def matrix_path(row: dict):
-    img = row.get("waterfall_image_path")
-    if not img:
-        return None
-    p = Path(img).with_suffix(".npy")
-    return p if p.exists() else None
-
-
-def labelled_ids(csv_path: Path) -> set:
-    if not csv_path.exists():
-        return set()
-    with csv_path.open(newline="", encoding="utf-8") as f:
-        return {r["capture_id"] for r in csv.DictReader(f)}
-
-
-def append(csv_path: Path, row: dict) -> None:
-    new = not csv_path.exists() or csv_path.stat().st_size == 0
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    with csv_path.open("a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
-        if new:
-            w.writeheader()
-        w.writerow(row)
-
-
-def make_row(db_row: dict, matrix: np.ndarray, label: int, labelled_by: str, notes: str = "") -> dict:
-    feats = waterfall_features(matrix.astype(np.float64))
-    capture_id = f"station_{db_row['id']}"
-    return {
-        "capture_id": capture_id, **feats, "label": int(label), "is_synthetic": 0,
-        # one recording = one pass, so a pass never lands in two splits
-        "recording_id": capture_id, "source_file": db_row.get("raw_iq_file_path") or db_row.get("input_file"),
-        "db_id": db_row["id"], "satellite_name": db_row.get("satellite_name"), "norad_id": db_row.get("norad_id"),
-        "scheduled_aos": db_row.get("scheduled_aos"), "actual_recording_start": db_row.get("actual_recording_start"),
-        "wf_ml_confidence_score": db_row.get("wf_ml_confidence_score"),
-        "waterfall_image_path": db_row.get("waterfall_image_path"), "labelled_by": labelled_by, "notes": notes,
-    }
 
 
 def open_image(path) -> None:
@@ -125,6 +85,8 @@ def main(argv=None, input_fn=input) -> int:
     p.add_argument("--no-open", action="store_true", help="Don't open each image automatically")
     p.add_argument("--include-simulated", action="store_true", help="Also offer simulated (demo) captures")
     p.add_argument("--labeller", default=os.environ.get("USERNAME") or os.environ.get("USER") or "unknown")
+    p.add_argument("--policy", default="archive-negatives", choices=("keep-all", "archive-negatives", "delete-negatives"),
+                   help="What to do with the raw IQ of a capture you label 0 (default archive-negatives)")
     args = p.parse_args(argv)
 
     todo = pending(args.db, args.output, args.limit, args.include_simulated)
@@ -148,8 +110,11 @@ def main(argv=None, input_fn=input) -> int:
             break
         if answer == "s":
             continue
-        matrix = np.load(matrix_path(r))
-        append(args.output, make_row(r, matrix, int(answer), args.labeller))
+        # Same as the web UI's Review page: stores the label on the capture row, moves an
+        # uncertain IQ file out of uncertain/ (signal) or applies the policy (noise),
+        # and appends the training row.
+        resolve(r["id"], int(answer), db_path=args.db, reviewer=args.labeller, policy=args.policy,
+                training_csv=args.output)
         added[int(answer)] += 1
     print(f"\nAdded {added[1]} with signal, {added[0]} without, to {args.output}")
     print("Retrain with it:  python train_model.py --feature-set waterfall --output models/waterfall_rf.joblib "

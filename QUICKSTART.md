@@ -54,7 +54,15 @@ run_station.bat
 ./run_station.sh
 ```
 
-A dashboard opens at <http://localhost:8050> showing the next passes with countdowns, what the station is doing now, a sky plot, every capture with its detection result, the latest Doppler-corrected waterfall, and disk space. Leave it running. Each pass is recorded, Doppler-corrected, checked by the rule detector and both ML models, logged in the database, and the IQ file is kept, or moved to `recordings/rejected/` if no satellite was found.
+The station's web page opens at <http://localhost:8050>. Leave it running; the computer is kept awake and the capture loop restarts itself if it ever crashes. Each pass is recorded, Doppler-corrected, checked by the rule detector and both ML models, and logged in the database. The result is one of three:
+
+- **Satellite found**: the raw IQ is kept.
+- **Needs review** (the model wasn't sure): the raw IQ is kept in `recordings/uncertain/` until someone looks at it on the **Review** page and presses *Signal* or *Noise*.
+- **Nothing found**: the raw IQ is archived to `recordings/rejected/` or deleted, as chosen in **Settings**. The waterfall picture is always kept.
+
+Web pages: **Overview** (what's happening now, next pass, results), **Passes**, **Captures** (click one for everything about it), **Review**, **Images** (decoded METEOR pictures), **Settings** (station, satellites, what to do with recordings), **Health** (checks, events, log).
+
+Optional, for pictures from METEOR passes: install [SatDump](https://www.satdump.org) (free). Kept METEOR passes are then decoded automatically.
 
 To try it without hardware: `run_station.bat --simulate`. To see the whole chain in 20 seconds: `.venv\Scripts\python auto_capture.py --config capture_config.json --demo` (Windows) or `.venv/bin/python auto_capture.py --config capture_config.json --demo`.
 

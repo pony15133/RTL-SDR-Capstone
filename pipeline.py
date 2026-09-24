@@ -52,7 +52,8 @@ from features.extractor import extract_features  # noqa: E402
 from iq_io import IQReader  # noqa: E402
 from detection.waterfall_detector import predict_waterfall  # noqa: E402
 from doppler import STANDARD_SPAN_HZ, DopplerCurve, standard_waterfall  # noqa: E402
-from retention import DEFAULT_KEEP_THRESHOLD, DEFAULT_POLICY, POLICIES  # noqa: E402
+from retention import DEFAULT_KEEP_THRESHOLD, DEFAULT_POLICY, DEFAULT_UNCERTAIN_BAND, POLICIES, UNCERTAIN  # noqa: E402
+from retention import parse_band  # noqa: E402
 from retention import apply as retention_apply  # noqa: E402
 from retention import decide as retention_decide  # noqa: E402
 from spectrogram import iq_to_spectrogram, save_spectrogram_image  # noqa: E402
@@ -78,6 +79,7 @@ class PipelineResult:
     spectrogram_image: Optional[str] = None
     skipped_reason: Optional[str] = None
     retention_action: Optional[str] = None
+    verdict: Optional[str] = None
     final_iq_path: Optional[str] = None
     wf_status: Optional[str] = None
     wf_confidence_score: Optional[float] = None
@@ -202,6 +204,7 @@ def process_recording(
     retention_policy: str = DEFAULT_POLICY,
     keep_threshold=DEFAULT_KEEP_THRESHOLD,
     archive_dir: Optional[Path] = None,
+    uncertain_band=DEFAULT_UNCERTAIN_BAND,
     log_failures: bool = False,
     max_detection_seconds: Optional[float] = 120.0,
     target_frequency_hz: Optional[float] = None,
@@ -288,7 +291,8 @@ def process_recording(
 
     # Prefer the waterfall model (trained on many real SatNOGS passes), then the IQ model, then the rule.
     preferred = wf_detection if (wf_detection is not None and wf_detection.ml_confidence_score is not None) else ml_detection
-    decision = retention_decide(ml_detection=preferred, rule_detection=detection, threshold=keep_threshold)
+    decision = retention_decide(ml_detection=preferred, rule_detection=detection, threshold=keep_threshold,
+                                uncertain_band=uncertain_band)
     if preferred is wf_detection and wf_detection is not None:
         decision.source = "waterfall-ml"
 
@@ -319,6 +323,8 @@ def process_recording(
         "waterfall_image_path": str(wf_image) if wf_image else None,
         "decision_source": decision.source,
         "decision_score": decision.score,
+        "detection_verdict": decision.verdict,
+        "review_status": "pending" if decision.verdict == UNCERTAIN else None,
         **recording_metadata_columns(result, frequency_hz=frequency_hz, sample_rate_hz=sample_rate_hz),
     }
     init_db(db_path)
@@ -340,6 +346,7 @@ def process_recording(
     pr.summary_path = str(summary_path)
     pr.spectrogram_image = str(image_path) if image_path else None
     pr.retention_action = outcome.action
+    pr.verdict = decision.verdict
     pr.wf_status = wf_detection.status if wf_detection else (wf_status_note or "SKIPPED")
     pr.wf_confidence_score = wf_detection.ml_confidence_score if wf_detection else None
     pr.waterfall_image = str(wf_image) if wf_image else None
@@ -365,6 +372,7 @@ def capture_and_detect(
     ml_model_path: Optional[Path] = None,
     retention_policy: str = DEFAULT_POLICY,
     keep_threshold=DEFAULT_KEEP_THRESHOLD,
+    uncertain_band=DEFAULT_UNCERTAIN_BAND,
     log_failures: bool = True,
 ) -> PipelineResult:
     """Record now for ``duration`` seconds, then detect -> database -> retention.
@@ -393,6 +401,7 @@ def capture_and_detect(
         ml_model_path=ml_model_path,
         retention_policy=retention_policy,
         keep_threshold=keep_threshold,
+        uncertain_band=uncertain_band,
         log_failures=log_failures,
     )
 
@@ -421,7 +430,10 @@ def _build_parser():
     parser.add_argument("--retention", choices=POLICIES, default=DEFAULT_POLICY,
                         help="What to do with the IQ file of a recording judged 'no satellite' (default keep-all)")
     parser.add_argument("--keep-threshold", type=float, default=DEFAULT_KEEP_THRESHOLD,
-                        help="ML confidence needed to keep the IQ file (default: the model's own tuned threshold)")
+                        help="ML confidence needed to keep the IQ file when --uncertain-band off "
+                             "(default: the model's own tuned threshold)")
+    parser.add_argument("--uncertain-band", default="0.3,0.7",
+                        help="Confidence range judged 'uncertain' (IQ always kept for review), e.g. 0.3,0.7; 'off' = two levels")
     return parser
 
 
@@ -448,6 +460,7 @@ def main(argv=None) -> int:
         ml_model_path=args.ml_model,
         retention_policy=args.retention,
         keep_threshold=args.keep_threshold,
+        uncertain_band=parse_band(args.uncertain_band),
     )
 
     print(f"recording_status={pr.recording.status.value}")
@@ -462,6 +475,7 @@ def main(argv=None) -> int:
     print(f"ml_status={pr.ml_status}")
     if pr.ml_confidence_score is not None:
         print(f"ml_confidence={pr.ml_confidence_score:.3f}")
+    print(f"verdict={pr.verdict}")
     print(f"iq_retention={pr.retention_action} -> {pr.final_iq_path}")
     print(f"summary={pr.summary_path}")
     if pr.spectrogram_image:

@@ -43,7 +43,9 @@ from config import DB_PATH
 from database import insert_pass_positions, log_status
 from doppler import doppler_curve_from_pass
 from pipeline import process_recording
-from retention import POLICIES
+import decode as meteor_decode
+from retention import DEFAULT_UNCERTAIN_BAND, POLICIES, parse_band
+import station_guard
 from rtl_recorder.config import RecorderConfig
 from rtl_recorder.passes import TLE, GroundStation, Pass, find_passes, get_tle, load_tle_file, make_propagator, pass_track
 from rtl_recorder.recorder import RTLSDRRecorder
@@ -78,7 +80,9 @@ class Settings:
     db_path: Optional[str] = None
     ml_model: Optional[str] = None
     retention: str = "archive-negatives"
-    keep_threshold: Optional[float] = None  # None = the model's tuned threshold
+    keep_threshold: Optional[float] = None  # None = the model's tuned threshold (two-level mode only)
+    #: Confidence range judged "uncertain": IQ always kept for review. None = two levels.
+    uncertain_band: Optional[tuple] = DEFAULT_UNCERTAIN_BAND
     tle_file: Optional[str] = None
     tle_cache_dir: str = "tle_cache"
     save_image: bool = True
@@ -87,6 +91,16 @@ class Settings:
     device_index: int = 0
     rtl_sdr_path: Optional[str] = None
     simulate: bool = False
+    # Long unattended runs (station_guard.py)
+    min_free_gb: float = station_guard.DEFAULT_MIN_FREE_GB
+    prune_rejected: bool = True
+    record_retries: int = 2
+    retry_delay_s: float = 15.0
+    min_retry_window_s: float = 30.0   # don't retry for less than this much of the pass
+    log_dir: str = "logs"
+    # METEOR LRPT decoding of kept recordings (sdr-doppler-prototype/src/decode.py)
+    decode: bool = True
+    satdump_path: Optional[str] = None
 
 
 @dataclass
@@ -156,6 +170,7 @@ def load_settings(args) -> Settings:
         ml_model=pick("ml_model", None),
         retention=str(pick("retention", "archive-negatives")),
         keep_threshold=(None if pick("keep_threshold", None) is None else float(pick("keep_threshold", None))),
+        uncertain_band=parse_band(pick("uncertain_band", list(DEFAULT_UNCERTAIN_BAND))),
         tle_file=pick("tle_file", None),
         tle_cache_dir=str(pick("tle_cache_dir", "tle_cache")),
         save_image=not args.no_image and bool(defaults.get("save_image", True)),
@@ -164,6 +179,13 @@ def load_settings(args) -> Settings:
         waterfall_model=pick("waterfall_model", None),
         rtl_sdr_path=pick("rtl_sdr_path", None),
         simulate=bool(args.simulate or args.demo),
+        min_free_gb=float(pick("min_free_gb", station_guard.DEFAULT_MIN_FREE_GB)),
+        prune_rejected=bool(pick("prune_rejected", True)),
+        record_retries=int(pick("record_retries", 2)),
+        retry_delay_s=float(pick("retry_delay_s", 15.0)),
+        log_dir=str(pick("log_dir", "logs")),
+        decode=bool(pick("decode", True)),
+        satdump_path=pick("satdump_path", None),
     )
 
 
@@ -291,9 +313,53 @@ class LiveStatus:
                 pass
 
 
+class DecodeWorker:
+    """Decodes METEOR recordings with SatDump in the background, one at a
+    time, so a long decode never delays the next pass."""
+
+    def __init__(self, settings: Settings, db_path: Path):
+        import queue
+
+        self.settings, self.db_path = settings, db_path
+        self.queue: "queue.Queue" = queue.Queue()
+        self.results: List[dict] = []
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def submit(self, capture_id: int):
+        self.queue.put(capture_id)
+
+    def _loop(self):
+        while True:
+            cid = self.queue.get()
+            if cid is None:
+                return
+            try:
+                r = meteor_decode.decode_capture(
+                    cid, db_path=self.db_path, satdump_path=self.settings.satdump_path,
+                    results_dir=Path(self.settings.results_dir) if self.settings.results_dir else None)
+                self.results.append({"capture_id": cid, **r})
+                log_status(self.db_path, "decoder", "DONE", f"capture {cid}: {r['status']}")
+            except Exception as exc:  # never take the station down
+                logger.warning("Decoding capture %s failed: %s", cid, exc)
+            finally:
+                self.queue.task_done()
+
+    def wait(self, timeout: float = None):
+        """For tests / shutdown: wait until the queue is empty."""
+        import time
+
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while self.queue.unfinished_tasks:
+            if deadline is not None and time.monotonic() > deadline:
+                return False
+            time.sleep(0.05)
+        return True
+
+
 def run_plan(plan: List[PlannedPass], settings: Settings, *, stop_event: Optional[threading.Event] = None,
              recorder: Optional[RTLSDRRecorder] = None, record_kwargs: Optional[dict] = None,
-             live: Optional[LiveStatus] = None) -> List[dict]:
+             live: Optional[LiveStatus] = None, decoder: Optional[DecodeWorker] = None) -> List[dict]:
     """Record and process each non-skipped pass in order. Returns one summary
     dict per attempted pass (also what gets printed / saved)."""
     stop_event = stop_event or threading.Event()
@@ -317,11 +383,43 @@ def run_plan(plan: List[PlannedPass], settings: Settings, *, stop_event: Optiona
         # Offset tuning: record a little below the downlink so the RTL-SDR's DC spike
         # (always at the tuned centre) can't be mistaken for the satellite.
         tuned_hz = int(t.frequency_hz - settings.tuning_offset_hz)
+
+        # Room on disk for this pass? (frees old rejected recordings if needed)
+        window_s = p.duration_seconds + settings.pre_buffer + settings.post_buffer
+        disk = station_guard.ensure_space(settings.output_dir, t.sample_rate, window_s,
+                                          min_free_gb=settings.min_free_gb, prune=settings.prune_rejected)
+        if disk.deleted:
+            log_status(db_path, "storage", "PRUNED", disk.message)
+        if not disk.ok:
+            logger.error("Skipping %s: %s", t.name, disk.message)
+            log_status(db_path, "storage", "DISK_FULL", f"{t.name}: {disk.message}")
+            summaries.append({**pp.as_dict(), "recording_status": "SKIPPED_DISK_FULL", "error": disk.message,
+                              "db_row": None, "verdict": None, "iq_retention": None})
+            continue
+
         result = recorder.record_pass(
             satellite_name=t.name, norad_id=t.norad_id, frequency_hz=tuned_hz, sample_rate=t.sample_rate,
             gain=t.gain, aos=p.aos, los=p.los, pre_buffer=settings.pre_buffer, post_buffer=settings.post_buffer,
             **(record_kwargs or {}),
         )
+        # Dongle busy / unplugged / rtl_sdr crashed: try again for the rest of the pass.
+        attempts = 0
+        while (result.status.value in station_guard.RETRYABLE and attempts < settings.record_retries
+               and not stop_event.is_set()
+               and datetime.now(timezone.utc) < p.los + timedelta(seconds=settings.post_buffer)
+               - timedelta(seconds=settings.retry_delay_s + settings.min_retry_window_s)):
+            attempts += 1
+            logger.warning("Recording %s failed (%s: %s) - retry %d/%d in %.0f s", t.name, result.status.value,
+                           result.error_message, attempts, settings.record_retries, settings.retry_delay_s)
+            log_status(db_path, "recorder", "RETRY",
+                       f"{t.name}: {result.status.value} {result.error_message or ''} - retry {attempts}")
+            if stop_event.wait(settings.retry_delay_s):
+                break
+            result = recorder.record_pass(
+                satellite_name=t.name, norad_id=t.norad_id, frequency_hz=tuned_hz, sample_rate=t.sample_rate,
+                gain=t.gain, aos=p.aos, los=p.los, pre_buffer=settings.pre_buffer, post_buffer=settings.post_buffer,
+                **(record_kwargs or {}),
+            )
         if live:
             live.set("processing", pp)
         doppler = None
@@ -340,7 +438,7 @@ def run_plan(plan: List[PlannedPass], settings: Settings, *, stop_event: Optiona
             output_dir=Path(settings.results_dir) if settings.results_dir else None,
             ml_model_path=Path(settings.ml_model) if settings.ml_model else None,
             save_image=settings.save_image, retention_policy=settings.retention,
-            keep_threshold=settings.keep_threshold, log_failures=True,
+            keep_threshold=settings.keep_threshold, uncertain_band=settings.uncertain_band, log_failures=True,
         )
         log_status(db_path, "recorder", result.status.value,
                    f"{t.name}: {result.error_message or result.output_file}")
@@ -356,15 +454,21 @@ def run_plan(plan: List[PlannedPass], settings: Settings, *, stop_event: Optiona
                 track_points = insert_pass_positions(db_path, pr.result_id, track)
             except Exception as exc:  # position history is a bonus - never lose the capture over it
                 logger.warning("Could not store pass track for %s: %s", t.name, exc)
+        wants_decode = (settings.decode and decoder is not None and pr.result_id is not None
+                        and meteor_decode.is_meteor(t.name) and pr.verdict in ("detected", "uncertain")
+                        and pr.final_iq_path)
+        if wants_decode:
+            decoder.submit(pr.result_id)
         log_status(db_path, "pipeline", "DONE" if pr.result_id else "ERROR",
                    f"{t.name}: row {pr.result_id}, retention {pr.retention_action}, {track_points} track points")
         summary = {
             **pp.as_dict(), "recording_status": result.status.value, "error": result.error_message,
             "db_row": pr.result_id, "rule_detected": pr.detected, "ml_status": pr.ml_status,
-            "ml_confidence": pr.ml_confidence_score, "iq_retention": pr.retention_action,
+            "ml_confidence": pr.ml_confidence_score, "iq_retention": pr.retention_action, "verdict": pr.verdict,
             "iq_path": pr.final_iq_path, "spectrogram": pr.spectrogram_image, "track_points": track_points,
             "doppler_corrected": pr.doppler_corrected, "waterfall_ml": pr.wf_status,
             "waterfall_confidence": pr.wf_confidence_score, "waterfall_image": pr.waterfall_image,
+            "decode_queued": bool(wants_decode),
         }
         summaries.append(summary)
         if live:
@@ -396,6 +500,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ml-model", help="Trained model .joblib")
     p.add_argument("--retention", choices=POLICIES, help="Default archive-negatives")
     p.add_argument("--keep-threshold", type=float)
+    p.add_argument("--uncertain-band", help="Confidence range judged 'uncertain' (IQ kept for review), e.g. 0.3,0.7; 'off' = two levels")
     p.add_argument("--tle-file", help="Use this TLE file instead of downloading from CelesTrak")
     p.add_argument("--no-image", action="store_true", help="Don't save spectrogram PNGs")
     p.add_argument("--simulate", action="store_true", help="No hardware: the recorder writes placeholder files")
@@ -426,8 +531,30 @@ def main(argv=None) -> int:
 
     all_summaries = []
     live = None
+    if not args.list_only:
+        log_file = station_guard.setup_daily_log(settings.log_dir)
+        logger.info("Logging to %s", log_file)
+        if station_guard.keep_awake():
+            logger.info("Keeping the computer awake while the station runs")
+    failures_in_a_row = 0
+    decoder = None
+    if settings.decode and not args.list_only:
+        if meteor_decode.find_satdump(settings.satdump_path):
+            decoder = DecodeWorker(settings, Path(settings.db_path) if settings.db_path else DB_PATH)
+            logger.info("METEOR decoding on (SatDump found)")
+        else:
+            logger.info("METEOR decoding off: SatDump not installed (https://www.satdump.org)")
     while not stop_event.is_set():
-        plan = demo_plan(settings) if args.demo else plan_passes(settings)
+        try:
+            plan = demo_plan(settings) if args.demo else plan_passes(settings)
+        except Exception as exc:  # e.g. no internet for TLEs - retry rather than die overnight
+            if not args.forever:
+                raise
+            failures_in_a_row += 1
+            wait = min(3600, 60 * 2 ** min(failures_in_a_row, 6))
+            logger.exception("Planning failed (%s) - trying again in %d s", exc, wait)
+            stop_event.wait(wait)
+            continue
         print(format_schedule(plan, settings.station))
         if args.list_only:
             return 0
@@ -438,19 +565,43 @@ def main(argv=None) -> int:
         schedule_file = Path(settings.output_dir) / "schedule.json"
         schedule_file.parent.mkdir(parents=True, exist_ok=True)
         schedule_file.write_text(json.dumps([pp.as_dict() for pp in plan], indent=2), encoding="utf-8")
-        summaries = run_plan(plan, settings, stop_event=stop_event, recorder=recorder, live=live)
+        try:
+            summaries = run_plan(plan, settings, stop_event=stop_event, recorder=recorder, live=live,
+                                 decoder=decoder)
+            failures_in_a_row = 0
+        except Exception as exc:  # one bad pass must not end an unattended run
+            if not args.forever:
+                raise
+            failures_in_a_row += 1
+            wait = min(3600, 60 * 2 ** min(failures_in_a_row, 6))
+            logger.exception("Station loop error (%s) - continuing in %d s", exc, wait)
+            try:
+                log_status(Path(settings.db_path) if settings.db_path else DB_PATH, "station", "ERROR",
+                           f"{type(exc).__name__}: {exc} - restarting loop in {wait} s")
+            except Exception:
+                pass
+            stop_event.wait(wait)
+            continue
         all_summaries += summaries
         for s in summaries:
+            if s["recording_status"] == "SKIPPED_DISK_FULL":
+                print(f"- {s['satellite']} {s['aos']}: skipped - {s['error']}")
+                continue
             print(f"- {s['satellite']} {s['aos']}: {s['recording_status']}, db row {s['db_row']}, "
                   f"rule={s['rule_detected']}, ml={s['ml_status']} {s['ml_confidence']}, "
                   f"waterfall-ml={s['waterfall_ml']} {s['waterfall_confidence']}, "
-                  f"doppler={'corrected' if s['doppler_corrected'] else 'n/a'}, IQ {s['iq_retention']}")
+                  f"doppler={'corrected' if s['doppler_corrected'] else 'n/a'}, verdict {s['verdict']}, "
+                  f"IQ {s['iq_retention']}")
         if args.demo or not args.forever:
             break
         if not any(pp.skipped_reason is None for pp in plan):
             stop_event.wait(3600)  # nothing to record in this window - check again in an hour
+    if decoder is not None and args.demo:
+        decoder.wait(timeout=600)
     if live is not None:
         live.stop()
+    if args.forever:
+        return 0  # only a deliberate stop (Ctrl+C) ends --forever; errors are caught and retried above
     return 0 if all(s["recording_status"] == "SUCCESS" for s in all_summaries) else 1
 
 

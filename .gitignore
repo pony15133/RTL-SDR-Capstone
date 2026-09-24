@@ -37,3 +37,6 @@ tle_cache/
 # Per-station config and runtime state
 capture_config.json
 recordings/
+
+# overnight training logs
+logs/

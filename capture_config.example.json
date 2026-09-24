@@ -15,10 +15,16 @@
     "output_dir": "recordings",
     "retention": "archive-negatives",
     "keep_threshold": null,
+    "uncertain_band": [0.3, 0.7],
     "ml_model": "sdr-doppler-prototype/models/random_forest.joblib",
     "save_image": true,
     "tuning_offset_hz": 150000,
-    "waterfall_model": "sdr-doppler-prototype/models/waterfall_rf.joblib"
+    "waterfall_model": "sdr-doppler-prototype/models/waterfall_rf.joblib",
+    "decode": true,
+    "satdump_path": null,
+    "min_free_gb": 2,
+    "prune_rejected": true,
+    "record_retries": 2
   },
   "satellites": [
     {

@@ -30,7 +30,7 @@ def _fmt(value, width, digits=None):
 
 def captures_table(rows) -> str:
     header = (f"{'id':>4}  {'time (UTC)':<19}  {'satellite':<14} {'MHz':>9}  {'recording':<11} "
-              f"{'rule':<4} {'ML':<4} {'ML conf':>7}  {'IQ file':<24}")
+              f"{'rule':<4} {'ML':<4} {'ML conf':>7}  {'verdict':<12} {'review':<8} {'IQ file':<24}")
     lines = [header, "-" * len(header)]
     for r in rows:
         mhz = r.get("frequency_hz") / 1e6 if r.get("frequency_hz") else None
@@ -39,7 +39,8 @@ def captures_table(rows) -> str:
         lines.append(
             f"{r['id']:>4}  {_fmt((r.get('timestamp_utc') or '')[:19], 19)}  {_fmt(r.get('satellite_name'), 14)} "
             f"{_fmt(mhz, 9, 3):>9}  {_fmt(r.get('recording_status'), 11)} {rule:<4} {ml:<4} "
-            f"{_fmt(r.get('ml_confidence_score'), 7, 2):>7}  {_fmt(r.get('iq_retention'), 24)}"
+            f"{_fmt(r.get('ml_confidence_score'), 7, 2):>7}  {_fmt(r.get('detection_verdict'), 12)} "
+            f"{_fmt(r.get('review_status'), 8)} {_fmt(r.get('iq_retention'), 24)}"
         )
     if not rows:
         lines.append("(no captures yet)")
@@ -76,13 +77,18 @@ def main(argv=None) -> int:
     parser.add_argument("--db", type=Path, default=DB_PATH)
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--capture", type=int, default=None, help="Show one capture in full, with its track")
+    parser.add_argument("--review", action="store_true", help="Only captures waiting for review (verdict uncertain)")
     args = parser.parse_args(argv)
     if args.capture is not None:
         print(capture_detail(args.db, args.capture))
         return 0
     print(f"Database: {args.db}\n")
     print("Recent captures")
-    print(captures_table(list_results(args.db, args.limit)))
+    rows = list_results(args.db, args.limit, review_status="pending" if args.review else None)
+    print(captures_table(rows))
+    if args.review:
+        print("\nReview them on the web page (Review tab) or: python scripts/label_station_captures.py")
+        return 0
     print("\nStation status log")
     print(status_table(list_status(args.db, args.limit)))
     return 0

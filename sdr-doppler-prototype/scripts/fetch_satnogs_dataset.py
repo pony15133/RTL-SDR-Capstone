@@ -55,6 +55,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import os
+
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -91,11 +93,38 @@ class RateLimited(Exception):
         self.wait_seconds = float(wait_seconds)
 
 
+def api_token():
+    """Optional personal API key from network.satnogs.org (profile page),
+    via the SATNOGS_API_TOKEN environment variable. Sent only to the
+    SatNOGS API, never to the image host."""
+    return (os.environ.get("SATNOGS_API_TOKEN") or "").strip() or None
+
+
+def keep_awake(enable: bool = True) -> bool:
+    """Stop Windows from going to sleep while this process runs (like a video
+    player does). Changes no settings; ends when the program ends. macOS/Linux:
+    use caffeinate / systemd-inhibit (train_overnight.sh does). Returns True if applied."""
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        import ctypes
+
+        ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+        flags = ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if enable else 0)
+        return bool(ctypes.windll.kernel32.SetThreadExecutionState(flags))
+    except Exception:  # never fatal
+        return False
+
+
 def http_get(url: str, *, retries: int = 4, timeout: float = 30.0):
     """(body bytes, headers). Backs off on 429/5xx; raises RateLimited for long pauses."""
     delay = 5.0
     for attempt in range(retries + 1):
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json, image/png"})
+        headers = {"User-Agent": USER_AGENT, "Accept": "application/json, image/png"}
+        token = api_token()
+        if token and url.startswith(API):
+            headers["Authorization"] = f"Token {token}"
+        req = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - fixed https hosts
                 return resp.read(), resp.headers
@@ -522,6 +551,8 @@ def main(argv=None) -> int:
     p.add_argument("--per-window", type=int, default=10,
                    help="Max observations per class per satellite query per time window, for variety")
     p.add_argument("--window-hours", type=int, default=12, help="Length of each time window")
+    p.add_argument("--keep-awake", action="store_true",
+                   help="Windows: keep the computer from sleeping until the download finishes (for overnight runs)")
     p.add_argument("--refresh-all", action="store_true",
                    help="With --refresh-labels: also re-check observations refreshed before")
     p.add_argument("--no-wait", action="store_true",
@@ -544,6 +575,12 @@ def main(argv=None) -> int:
     args.arrays_dir.mkdir(parents=True, exist_ok=True)
     check_dir = args.arrays_dir.parent / "parse_check"
     check_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.keep_awake:
+        print("Keeping the computer awake until this finishes" if keep_awake()
+              else "(--keep-awake: not on Windows - the overnight script uses caffeinate/systemd-inhibit instead)")
+    if api_token():
+        print("Using your SatNOGS API token (SATNOGS_API_TOKEN)")
 
     if args.rebuild_features:
         if not args.output.exists():

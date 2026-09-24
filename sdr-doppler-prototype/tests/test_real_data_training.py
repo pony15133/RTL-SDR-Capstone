@@ -350,3 +350,51 @@ def test_preset_phase_fills_its_own_quota_first(tmp_path, monkeypatch):
     df = pd.read_csv(out)
     ours = df[df.norad_cat_id == 57166]
     assert len(df) == 20 and set(ours.label.value_counts()) == {4}
+
+
+def test_api_token_goes_only_to_the_satnogs_api(monkeypatch):
+    seen = {}
+
+    class Resp:
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"[]"
+
+    def urlopen(req, timeout):
+        seen[req.full_url] = req.get_header("Authorization")
+        return Resp()
+
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", urlopen)
+    monkeypatch.setenv("SATNOGS_API_TOKEN", "abc123")
+    fetch.http_get(fetch.API + "?format=json")
+    fetch.http_get("https://s3.wasabisys.com/satnogs-network/wf.png")
+    assert seen[fetch.API + "?format=json"] == "Token abc123"
+    assert seen["https://s3.wasabisys.com/satnogs-network/wf.png"] is None
+    monkeypatch.delenv("SATNOGS_API_TOKEN")
+    fetch.http_get(fetch.API + "?format=json")
+    assert seen[fetch.API + "?format=json"] is None
+
+
+def test_keep_awake_is_harmless_off_windows():
+    if not sys.platform.startswith("win"):
+        assert fetch.keep_awake() is False
+
+
+def test_overnight_setup_uses_fewer_bigger_api_pages(monkeypatch):
+    spec = importlib.util.spec_from_file_location("setup_station", ROOT.parent / "setup_station.py")
+    setup = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(setup)
+    calls = []
+    monkeypatch.setattr(setup, "run", lambda cmd, cwd=None: calls.append([str(c) for c in cmd]) or 0)
+    setup.main(["--fetch-satnogs", "--big-data", "--keep-awake", "--skip-doctor"])
+    fetch_cmd = next(c for c in calls if c[1].endswith("fetch_satnogs_dataset.py") and "--per-class" in c)
+    assert fetch_cmd[fetch_cmd.index("--per-class") + 1] == "1500"
+    assert fetch_cmd[fetch_cmd.index("--per-window") + 1] == "25"
+    assert "--keep-awake" in fetch_cmd and "--preset" in fetch_cmd

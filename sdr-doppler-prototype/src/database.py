@@ -73,6 +73,16 @@ RETENTION_COLUMNS = {
     "retention_reason": "TEXT",
     "decision_source": "TEXT",
     "decision_score": "REAL",
+    # Three-level result (detected / uncertain / not_detected) and the human
+    # review of uncertain captures (pending -> signal / noise), see src/review.py.
+    "detection_verdict": "TEXT",
+    "review_status": "TEXT",
+    "human_label": "INTEGER",
+    "reviewed_by": "TEXT",
+    "reviewed_at": "TEXT",
+    # METEOR LRPT decoding (src/decode.py): status + folder of decoded images.
+    "decode_status": "TEXT",
+    "decoded_image_dir": "TEXT",
 }
 
 
@@ -182,13 +192,35 @@ def update_result(db_path: Path, result_id: int, changes: dict) -> None:
         conn.commit()
 
 
-def list_results(db_path: Path, limit: int = 50) -> list:
-    """Most recent rows first - used by the capture-history view."""
+def list_results(db_path: Path, limit: int = 50, *, verdict=None, review_status=None, satellite=None,
+                 offset: int = 0) -> list:
+    """Most recent rows first - used by the capture-history view and the web UI.
+    Optional filters: verdict (detected / uncertain / not_detected), review_status, satellite name."""
     init_db(db_path)
+    where, args = [], []
+    for column, value in (("detection_verdict", verdict), ("review_status", review_status),
+                          ("satellite_name", satellite)):
+        if value:
+            where.append(f"{column} = ?")
+            args.append(value)
+    sql = "SELECT * FROM capture_results" + (" WHERE " + " AND ".join(where) if where else "")
+    sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
     with closing(sqlite3.connect(db_path)) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT * FROM capture_results ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()
+        rows = conn.execute(sql, [*args, int(limit), int(offset)]).fetchall()
         return [dict(r) for r in rows]
+
+
+def count_results(db_path: Path) -> dict:
+    """Totals for the overview page: all rows and per verdict / review status."""
+    init_db(db_path)
+    with closing(sqlite3.connect(db_path)) as conn:
+        total = conn.execute("SELECT COUNT(*) FROM capture_results").fetchone()[0]
+        verdicts = dict(conn.execute(
+            "SELECT COALESCE(detection_verdict, 'unknown'), COUNT(*) FROM capture_results GROUP BY 1").fetchall())
+        pending = conn.execute(
+            "SELECT COUNT(*) FROM capture_results WHERE review_status = 'pending'").fetchone()[0]
+    return {"total": int(total), "verdicts": {k: int(v) for k, v in verdicts.items()}, "pending_review": int(pending)}
 
 
 def insert_pass_positions(db_path: Path, capture_id, positions: list) -> int:
