@@ -2,9 +2,11 @@
 
 Capstone project: **database of signals, position histories, archiving and status monitoring** for a low-cost RTL-SDR ground station.
 
-The system predicts when satellites pass overhead, records their radio signal with an RTL-SDR, removes the Doppler shift, decides with a rule-based detector and two machine-learning models whether a satellite was actually captured, stores everything in a database, keeps only the recordings worth keeping, and shows it all on a live dashboard.
+The system predicts when satellites pass overhead and records their radio signal with an RTL-SDR. It removes the Doppler shift, then decides with a rule-based detector and up to two machine-learning models whether a satellite was actually captured. It stores everything in a database, keeps only the recordings worth keeping, and shows it all on a live dashboard. The second (waterfall) model only exists after `setup --fetch-satnogs` has downloaded its training data.
 
 > **Running the station with a dongle? Start with [QUICKSTART.md](QUICKSTART.md).** `setup`, then `check_dongle`, then `run_station`.
+>
+> **Handover:** current verified status, test results and known limitations are in [FINAL_HANDOVER_STATUS.md](FINAL_HANDOVER_STATUS.md). The real-hardware test procedure is [LIVE_HARDWARE_TEST.md](LIVE_HARDWARE_TEST.md). Saved evidence is in [`evidence/`](evidence/).
 
 ```
  TLE (CelesTrak)            iq-recorder                     sdr-doppler-prototype
@@ -27,7 +29,9 @@ The system predicts when satellites pass overhead, records their radio signal wi
 | `setup.*` / `check_dongle.*` / `run_station.*` | One-time setup, 1-minute hardware test, start dashboard + capture (Windows `.bat`, macOS/Linux `.sh`) |
 | `iq-recorder/` | `rtl_recorder` package: cross-platform `rtl_sdr` control, pass prediction (`passes.py`), `record_pass()`, environment `doctor` |
 | `sdr-doppler-prototype/` | Signal processing, features, rule + ML detectors, training, database, GUI, visualisation |
-| `sdr-doppler-prototype/gui_app.py` | Desktop GUI (Windows: `launch_gui.bat`, macOS/Linux: `launch_gui.sh`) |
+| `sdr-doppler-prototype/gui_app.py` | Desktop GUI (Windows: `sdr-doppler-prototype\launch_gui.bat`, macOS/Linux: `sdr-doppler-prototype/launch_gui.sh`) |
+| `tools/` | Evidence tools: `verify_simulated_pipeline.py`, `benchmark_processing.py`, `gui_smoke_test.py` |
+| `evidence/` | Saved test, pipeline, ML, performance and GUI evidence (see FINAL_HANDOVER_STATUS.md) |
 
 ## Setup (Windows, macOS, Linux)
 
@@ -59,10 +63,51 @@ python sdr-doppler-prototype/src/visualize.py --input recordings/ISS_..._1458000
 python sdr-doppler-prototype/src/history.py
 python sdr-doppler-prototype/src/history.py --capture 12
 
+# Desktop GUI
+sdr-doppler-prototype/launch_gui.sh          # Windows: sdr-doppler-prototype\launch_gui.bat
+
+# Live dashboard (reads the database and the heartbeat auto_capture.py writes)
+python dashboard.py --config capture_config.json          # http://localhost:8050
+
 # Train the model (grouped train/validation/test split, see below)
 cd sdr-doppler-prototype
 python train_model.py --dataset data/training/rsp03_camras_features.csv --output models/random_forest.joblib
+python scripts/ml_evaluation_report.py      # evidence/ml/ML_EVALUATION.md
 ```
+
+## Configuration (`capture_config.json`)
+
+`setup` copies `capture_config.example.json` to `capture_config.json`, which git ignores. Paths are relative to the repo root. Run everything from there.
+
+| Section / key | Meaning (default) |
+|---|---|
+| `station.name`, `lat_deg`, `lon_deg`, `alt_m` | Ground station (Singapore campus) |
+| `recording.sample_rate` | Samples/s for every satellite unless it sets its own (1,024,000) |
+| `recording.hours` | How far ahead to plan passes (24) |
+| `recording.min_elevation_deg` | Skip passes that peak lower (15) |
+| `recording.pre_buffer`, `post_buffer` | Seconds recorded before AOS / after LOS (30 / 30) |
+| `recording.output_dir` | Where `.iq` + `.json` recordings, `schedule.json` and `live_status.json` go (`recordings`) |
+| `recording.retention`, `keep_threshold` | `keep-all` / `archive-negatives` (to `recordings/rejected/`) / `delete-negatives`, and the ML confidence needed to keep (archive-negatives, 0.5) |
+| `recording.ml_model`, `waterfall_model` | Trained models (`sdr-doppler-prototype/models/random_forest.joblib`, `.../waterfall_rf.joblib`). A missing model is reported as `MODEL_NOT_AVAILABLE` rather than an error |
+| `recording.save_image` | Save spectrogram PNGs (true) |
+| `recording.tuning_offset_hz` | Tune this far below the downlink so the dongle's DC spike stays off the signal (150,000) |
+| `recording.max_detection_seconds` | Seconds of each recording used for detection (120). Peak memory grows with it: about 6.7 GB at 120 s, 3.5 GB at 60 s at 1.024 Msps. **Use 60 on an 8 GB computer** |
+| `recording.db_path`, `results_dir`, `tle_cache_dir`, `tle_file`, `device_index`, `rtl_sdr_path` | Optional overrides (DB below; results next to the DB; `tle_cache/`; download TLEs; 0; auto-detect) |
+| `satellites[]`: `name`, `norad_id`, `frequency_hz`, `gain`, `waterfall_span_hz`, optional `sample_rate`, `min_elevation_deg` | What to record |
+
+Most `recording` keys also have an `auto_capture.py` option (`--help`), and the option wins over the config. `tuning_offset_hz`, `waterfall_model`, `tle_cache_dir`, `device_index` and `rtl_sdr_path` can only be set in the config.
+
+## Outputs
+
+| What | Where |
+|---|---|
+| Raw IQ + recorder JSON sidecar | `recordings/<SAT>_<YYYYMMDD_HHMMSS>_<tunedHz>Hz.iq/.json`, or `recordings/rejected/` if archived |
+| Summary JSON, spectrogram PNG, Doppler-corrected waterfall PNG | `sdr-doppler-prototype/data/results/` (next to the database) |
+| Database | `sdr-doppler-prototype/data/results/captures.sqlite3` |
+| Pass schedule, dashboard heartbeat | `recordings/schedule.json`, `recordings/live_status.json` |
+| TLE cache | `tle_cache/<norad>.tle` (12 h) |
+| Trained models (not in git) | `sdr-doppler-prototype/models/*.joblib` + `.json` metadata |
+| `src/main.py` / GUI "Run Detection" runs | `sdr-doppler-prototype/data/results/session_<date>_<time>/` |
 
 ## How the supervisors' requests are covered
 
@@ -90,8 +135,13 @@ python train_model.py --dataset data/training/rsp03_camras_features.csv --output
 
 ```bash
 python -m pytest            # from the repo root: all three projects, hardware tests skipped
-python -m pytest -m hardware   # only with a real dongle attached
+python -m pytest -m hardware   # only with a real dongle attached (see LIVE_HARDWARE_TEST.md)
+python tools/verify_simulated_pipeline.py   # demo + TLE pass, checks every stored field -> evidence/pipeline/
+python tools/benchmark_processing.py        # time + peak memory per recording -> evidence/performance/
+python tools/gui_smoke_test.py              # needs a display (or: xvfb-run -a ...) -> evidence/gui/
 ```
+
+Latest results are in FINAL_HANDOVER_STATUS.md.
 
 ## Data
 

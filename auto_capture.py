@@ -79,6 +79,10 @@ class Settings:
     ml_model: Optional[str] = None
     retention: str = "archive-negatives"
     keep_threshold: float = 0.5
+    #: Detection reads at most this many seconds of each recording. Peak memory
+    #: grows with it (~6.7 GB at 120 s, 1.024 Msps - see evidence/performance/);
+    #: lower it on an 8 GB computer.
+    max_detection_seconds: float = 120.0
     tle_file: Optional[str] = None
     tle_cache_dir: str = "tle_cache"
     save_image: bool = True
@@ -156,6 +160,7 @@ def load_settings(args) -> Settings:
         ml_model=pick("ml_model", None),
         retention=str(pick("retention", "archive-negatives")),
         keep_threshold=float(pick("keep_threshold", 0.5)),
+        max_detection_seconds=float(pick("max_detection_seconds", 120.0)),
         tle_file=pick("tle_file", None),
         tle_cache_dir=str(pick("tle_cache_dir", "tle_cache")),
         save_image=not args.no_image and bool(defaults.get("save_image", True)),
@@ -341,6 +346,7 @@ def run_plan(plan: List[PlannedPass], settings: Settings, *, stop_event: Optiona
             ml_model_path=Path(settings.ml_model) if settings.ml_model else None,
             save_image=settings.save_image, retention_policy=settings.retention,
             keep_threshold=settings.keep_threshold, log_failures=True,
+            max_detection_seconds=settings.max_detection_seconds,
         )
         log_status(db_path, "recorder", result.status.value,
                    f"{t.name}: {result.error_message or result.output_file}")
@@ -396,6 +402,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ml-model", help="Trained model .joblib")
     p.add_argument("--retention", choices=POLICIES, help="Default archive-negatives")
     p.add_argument("--keep-threshold", type=float)
+    p.add_argument("--max-detection-seconds", type=float,
+                   help="Seconds of each recording used for detection (default 120; lower = less memory)")
     p.add_argument("--tle-file", help="Use this TLE file instead of downloading from CelesTrak")
     p.add_argument("--no-image", action="store_true", help="Don't save spectrogram PNGs")
     p.add_argument("--simulate", action="store_true", help="No hardware: the recorder writes placeholder files")

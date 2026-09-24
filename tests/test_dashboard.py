@@ -103,3 +103,44 @@ def test_auto_capture_writes_heartbeat(tmp_path):
     data = json.loads((tmp_path / "rec" / "live_status.json").read_text())
     live.stop()
     assert data["phase"] == "planned" and data["station"]["name"] == "Singapore campus"
+
+
+def test_partially_migrated_database_still_shows_rows_and_totals(tmp_path):
+    """A pre-ML database (original capture_results only, no status_log /
+    pass_positions) must not break the read-only dashboard."""
+    import sqlite3
+
+    from database import SCHEMA
+
+    st = _state(tmp_path)
+    with sqlite3.connect(st.db) as conn:
+        conn.execute(SCHEMA)
+        conn.execute("INSERT INTO capture_results (input_file, timestamp_utc, detection_result, confidence_score, "
+                     "valid_signal_ratio, frequency_drift_hz, smoothness_score) VALUES ('a.iq', '2026-01-01', 1, "
+                     "0.9, 0.5, 2000, 100)")
+    snap = st.snapshot()
+    assert [c["input_file"] for c in snap["captures"]] == ["a.iq"]
+    assert snap["totals"]["n"] == 1 and snap["totals"]["detected"] == 1
+    assert snap["status_log"] == [] and snap["sky"]["points"] == []
+
+
+def test_corrupt_database_file_does_not_crash(tmp_path):
+    st = _state(tmp_path)
+    st.db.write_bytes(b"not a database" * 100)
+    snap = st.snapshot()
+    assert snap["captures"] == [] and snap["totals"] == {}
+
+
+def test_malformed_heartbeat_does_not_crash(tmp_path):
+    st = _state(tmp_path)
+    hb = tmp_path / "rec" / "live_status.json"
+    for content in ('{"phase": "planned"}', '{"updated_utc": "yesterday"}', "[1, 2]", "", '{"updated_utc": "20'):
+        hb.write_text(content)
+        assert st.snapshot()["live"]["phase"] == "unknown"
+
+
+def test_naive_heartbeat_timestamp_is_read_as_utc(tmp_path):
+    st = _state(tmp_path)
+    _heartbeat(tmp_path, updated_utc=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds"))
+    live = st.live()
+    assert live["phase"] == "waiting for pass" and live["heartbeat_age_s"] < 60

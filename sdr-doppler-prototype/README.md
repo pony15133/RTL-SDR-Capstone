@@ -1,8 +1,8 @@
 # SDR Doppler Prototype
 
-Backend-only Python prototype for detecting candidate satellite Doppler signals from RTL-SDR IQ captures or precomputed spectrogram matrices.
+Python processing and detection for candidate satellite Doppler signals from RTL-SDR IQ captures or precomputed spectrogram matrices.
 
-The code is intentionally small and readable for a university capstone prototype. It does not include a GUI, orbital mechanics, cloud deployment, or production capture orchestration.
+This folder is the processing half of the project. Capture, pass prediction and the automatic station loop live in `../iq-recorder/` and `../auto_capture.py` (see the root README). This folder also holds the Tkinter desktop GUI (`gui_app.py`; `launch_gui.bat` on Windows, `launch_gui.sh` on macOS/Linux), the Doppler correction (`src/doppler.py`), the database, and the training tools. There is no cloud deployment.
 
 Two detectors run side by side on every capture, so their performance can be compared:
 
@@ -20,7 +20,7 @@ Two detectors run side by side on every capture, so their performance can be com
 - Saves a JSON result summary (both detectors' results).
 - Optionally saves a spectrogram PNG.
 - Stores one row per capture in SQLite, including both detectors' results and the ML model version used.
-- Stores the raw IQ file path only when detection is positive.
+- `src/main.py` stores the raw IQ file path only when detection is positive. The automatic pipeline (`../pipeline.py`) always stores it and records what retention did to the file.
 
 ## Setup
 
@@ -50,11 +50,18 @@ python scripts/make_synthetic_sample.py
 python src/main.py --input data/raw/sample.npy --output data/results/ --save-image
 ```
 
-For a text spectrogram matrix:
+For a text spectrogram matrix (the original notebook workflow, SRS REQ-1): time rows x frequency columns, in dB, with no header. No such file is bundled, so use your own, e.g. `spectrogram0_136800000.txt`:
 
 ```bash
-python src/main.py --input data/spectrograms/spectrogram0_136800000.txt --output data/results/
+python src/main.py --input data/spectrograms/spectrogram0_136800000.txt --output data/results/ \
+  --sample-rate 240000 --center-freq 136800000 --save-image
 ```
+
+A text file carries no metadata, so pass `--sample-rate` and `--center-freq` to match how it was made. The columns are then assumed to span centre +/- sample-rate/2 evenly. The defaults are 240 kHz and 136.8 MHz. Verified by `tests/test_text_input_pipeline.py`: whitespace- or tab-separated `.txt` and comma-separated `.csv` run through to the JSON summary, PNG and database row. Known limits:
+
+- a header row or a `;` delimiter stops with a `ValueError`;
+- `nan` cells are not rejected. In a check, one `nan` cell just made its time slice count as invalid;
+- there is no real time axis, so `signal_duration_seconds` and `drift_rate_hz_per_second` are in row units (see Known Limitations).
 
 Useful tuning options:
 
@@ -74,7 +81,7 @@ python src/main.py \
 ## Input Formats
 
 - `.npy` 1D complex array: raw IQ samples.
-- `.bin`, `.iq`, `.dat`: raw binary IQ samples, default dtype `complex64`.
+- Raw binary IQ, format chosen automatically (`--binary-dtype auto`) from a SigMF `.sigmf-meta`, the recorder's JSON sidecar, or the file name. Otherwise it goes by extension: `.iq`/`.cu8` = rtl_sdr unsigned 8-bit (`cu8`), `.raw`/`.cs16` = signed 16-bit (`ci16`, CAMRAS), `.bin`/`.dat`/`.cf32` = `complex64`, `.wav` = SDR# recordings. `--binary-dtype cu8|ci16|complex64|wav` overrides it.
 - `.npy` 2D array: spectrogram matrix in dB.
 - `.txt`, `.csv`: spectrogram matrix in dB.
 
@@ -92,7 +99,7 @@ This reads `global."core:datatype"` from the metadata (`ci16_le`, `cu8`, `cf32_l
 
 ## Machine Learning Component
 
-**Status: IMPLEMENTED BUT NOT VALIDATED.** The Random Forest pipeline is fully operational, but no model has been trained on real, labelled RTL-SDR captures yet - only synthetic data (clearly marked as such) has been used to verify the pipeline runs correctly. Do not treat any evaluation metrics produced so far as real-world accuracy.
+**Status: IMPLEMENTED BUT NOT VALIDATED.** The Random Forest pipeline is operational and has been trained and evaluated on one real dataset: `data/training/rsp03_camras_features.csv`, 111 windows from 4 recordings of **one** satellite pass at **one** station (the CAMRAS 25 m dish, not an RTL-SDR). The grouped train/validation/test results are in `../evidence/ml/ML_EVALUATION.md` (reproduce with `python scripts/ml_evaluation_report.py`). They show the method runs without leakage on real data. They do **not** show the model works on RTL-SDR captures of other satellites. No model has yet been trained or tested on real labelled RTL-SDR captures.
 
 ### Architecture
 
@@ -202,13 +209,14 @@ Table: `capture_results`
 - `detection_result`, `confidence_score`, `valid_signal_ratio`, `frequency_drift_hz`, `smoothness_score` - the original rule-detector columns, unchanged, still populated by it.
 - `rule_detection_result`, `rule_confidence_score` - the same rule-detector result, added under names that read naturally next to the ML columns below.
 - `ml_detection_result`, `ml_confidence_score`, `model_version` - the Random Forest result; all three are `NULL` for a capture processed while no trained model was available.
+- Plus, written by the automatic pipeline (`../pipeline.py`): recorder metadata (satellite, NORAD id, frequencies, gain, scheduled/actual times, sizes, `simulated`), Doppler and waterfall-model columns, `processing_status`, and the retention decision. There are also two more tables, `pass_positions` (satellite track) and `status_log`. See the root README's Database section.
 
 An existing database created before the ML component is migrated automatically and non-destructively (`ALTER TABLE ... ADD COLUMN`, existing rows keep their data with `NULL` in the new columns) the next time `init_db()` runs.
 
 ## Known Limitations
 
 - The rule-based detector is a first pass, useful for sorting captures into "worth inspecting" vs. "probably noise", not final scientific classification.
-- The Random Forest classifier is **implemented but not validated** - no model has been trained on real, independently-verified labelled captures yet.
+- The Random Forest classifier is **implemented but not validated**. Its only real training data is one satellite pass from one (non-RTL-SDR) station, and its labels come from a known-carrier SNR rule, not independent ground truth. See `../evidence/ml/ML_EVALUATION.md`.
 - `occupied_bandwidth_hz` is a threshold-crossing bandwidth estimate, not a formal 99%-power occupied bandwidth measurement.
 - `signal_duration_seconds` and `drift_rate_hz_per_second` are only in real seconds for raw-IQ input; a bare spectrogram-matrix input (`.txt`/`.csv`) has no real time axis, and `FeatureVector.time_axis_is_synthetic` flags this.
 - Cross-validation and the train/validation/test split are statistically unreliable on very small datasets. `src/ml/train.py` degrades gracefully, skipping or falling back with a stated reason, rather than reporting misleadingly precise numbers. A three-way split needs at least 3 recordings. If grouping finds fewer, it falls back to one group per row and warns that test metrics may be optimistic.

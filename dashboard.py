@@ -45,8 +45,8 @@ def _rows(db: Path, sql: str, params=()) -> list:
         with closing(sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=2)) as conn:
             conn.row_factory = sqlite3.Row
             return [dict(r) for r in conn.execute(sql, params)]
-    except sqlite3.OperationalError:
-        return []  # table not created yet
+    except sqlite3.DatabaseError:
+        return []  # table/column not created yet, or not a database at all
 
 
 def _folder_size(folder: Path) -> int:
@@ -90,8 +90,15 @@ class DashboardState:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {"phase": "unknown"}
-        updated = datetime.fromisoformat(data["updated_utc"])
-        age = (datetime.now(timezone.utc) - updated).total_seconds()
+        if not isinstance(data, dict):
+            return {"phase": "unknown"}
+        try:
+            updated = datetime.fromisoformat(str(data["updated_utc"]))
+        except (KeyError, ValueError):
+            return {**data, "phase": "unknown", "note": f"heartbeat at {path} has no valid updated_utc"}
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)  # auto_capture writes UTC
+        age =(datetime.now(timezone.utc) - updated).total_seconds()
         data["heartbeat_age_s"] = round(age)
         if data.get("recorder_state") == "RECORDING":
             data["phase"] = "recording"
@@ -143,7 +150,10 @@ class DashboardState:
                  SUM(CASE WHEN iq_retention LIKE 'kept%' THEN 1 ELSE 0 END) AS kept,
                  SUM(CASE WHEN iq_retention='archived' THEN 1 ELSE 0 END) AS archived,
                  SUM(CASE WHEN iq_retention='deleted' THEN 1 ELSE 0 END) AS deleted
-                 FROM capture_results""") or [{}])[0]
+                 FROM capture_results""")
+                  # older DB without the recorder/retention columns: still count its rows
+                  or _rows(self.db, "SELECT COUNT(*) AS n, SUM(detection_result) AS detected FROM capture_results")
+                  or [{}])[0]
         status_log = _rows(self.db, "SELECT timestamp_utc, component, state, message FROM status_log "
                                     "ORDER BY id DESC LIMIT 12")
         disk_dir = self.output_dir if self.output_dir.exists() else REPO

@@ -172,3 +172,28 @@ def test_offset_tuning_doppler_and_waterfall_are_recorded(tmp_path, config, tle_
     assert summary["doppler_corrected"] is True
     assert row["waterfall_image_path"] and Path(row["waterfall_image_path"]).exists()
     assert summary["waterfall_ml"] in ("MODEL_NOT_AVAILABLE", "AVAILABLE")
+
+
+def test_max_detection_seconds_from_config_and_cli(tmp_path, config):
+    assert _settings(config).max_detection_seconds == 120.0          # unchanged default
+    cfg = json.loads(config.read_text())
+    cfg["recording"]["max_detection_seconds"] = 45
+    small = tmp_path / "small.json"
+    small.write_text(json.dumps(cfg))
+    assert _settings(small).max_detection_seconds == 45.0
+    assert _settings(small, "--max-detection-seconds", "30").max_detection_seconds == 30.0
+
+
+def test_max_detection_seconds_reaches_process_recording(tmp_path, config, monkeypatch):
+    seen = {}
+    real = auto_capture.process_recording
+
+    def spy(*args, **kwargs):
+        seen["max_detection_seconds"] = kwargs.get("max_detection_seconds")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(auto_capture, "process_recording", spy)
+    s = _settings(config, "--simulate", "--db", str(tmp_path / "c.sqlite3"), "--max-detection-seconds", "30")
+    s.pre_buffer = s.post_buffer = 0.2
+    auto_capture.run_plan([_pp("SAT", datetime.now(timezone.utc) + timedelta(seconds=0.5), 1 / 60, 40)], s)
+    assert seen["max_detection_seconds"] == 30.0

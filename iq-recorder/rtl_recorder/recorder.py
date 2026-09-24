@@ -3,9 +3,9 @@
 ``RTLSDRRecorder`` is the single public entry point for this subsystem. It
 owns the recorder's state machine, launches/monitors/stops the ``rtl_sdr``
 child process (or simulates one), verifies the resulting IQ file, and
-writes the JSON metadata sidecar. It knows nothing about SatNOGS, pass
-scheduling, or signal processing - a future scheduler is expected to call
-it through ``record()`` / ``record_pass()`` (Phase 2) or the lower-level
+writes the JSON metadata sidecar. It knows nothing about pass prediction
+or signal processing - ``auto_capture.py`` (repo root) calls it through
+``record_pass()``, ``pipeline.py`` through ``record()``, or use the lower-level
 ``start_recording()`` / ``stop_recording()`` / ``cancel_recording()`` /
 ``check_recording_status()`` primitives.
 """
