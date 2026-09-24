@@ -4,7 +4,7 @@ Capstone project: **database of signals, position histories, archiving and statu
 
 The system predicts when satellites pass overhead, records their radio signal with an RTL-SDR, removes the Doppler shift, decides with a rule-based detector and two machine-learning models whether a satellite was actually captured, stores everything in a database, keeps only the recordings worth keeping, and shows it all on a live dashboard.
 
-> **Running the station with a dongle? Start with [QUICKSTART.md](QUICKSTART.md).** To check every feature by hand, follow [TESTING.md](TESTING.md). `setup`, then `check_dongle`, then `run_station`.
+> **Running the station with a dongle? Start with [QUICKSTART.md](QUICKSTART.md).** To check every feature by hand, follow [TESTING.md](TESTING.md). To train on more real data, see [TRAINING.md](TRAINING.md). `setup`, then `check_dongle`, then `run_station`.
 
 ```
  TLE (CelesTrak)            iq-recorder                     sdr-doppler-prototype
@@ -76,7 +76,7 @@ python train_model.py --dataset data/training/rsp03_camras_features.csv --output
 | ML confidence decides whether to keep the IQ file | `src/retention.py`: `keep-all` / `archive-negatives` / `delete-negatives`, with the decision logged per row |
 | Proper train / validation / test methodology (Xinyi, 9 Sep) | `src/ml/train.py`: split by recording, tuned on validation, test scored once, `<model>_splits.csv` |
 | Doppler correction | `src/doppler.py`: predicted Doppler curve from TLE + station, removed from every recording; offset tuning keeps the dongle's DC spike away from the signal; `visualize.py --doppler` |
-| Real training data from online sources | `scripts/fetch_satnogs_dataset.py`: vetted good/bad observations from the worldwide SatNOGS network → waterfall model (`train_model.py --feature-set waterfall`); external test on the CAMRAS RSP-03 pass (`scripts/evaluate_model.py`) |
+| Real training data from online sources | `scripts/fetch_satnogs_dataset.py`: vetted observations from the worldwide SatNOGS network, labelled by waterfall vetting → waterfall model (`train_model.py --feature-set waterfall`); label review (`scripts/review_labels.py`); our own labelled passes (`scripts/label_station_captures.py`); external test on the CAMRAS RSP-03 pass (`scripts/evaluate_model.py`). See [TRAINING.md](TRAINING.md) |
 | Live status dashboard | `dashboard.py` (heartbeat from `auto_capture.py`) |
 | Position histories and status monitoring (project title) | Tables `pass_positions` (az/el/range/Doppler every 10 s per pass) and `status_log`, shown by `history.py` and the GUI tab **Capture History** |
 

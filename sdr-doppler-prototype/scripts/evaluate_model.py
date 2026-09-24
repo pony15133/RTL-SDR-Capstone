@@ -31,8 +31,14 @@ def evaluate(model_path, dataset_path) -> dict:
     X = df[list(bundle.feature_names)].to_numpy(dtype=float)
     y = df["label"].to_numpy(dtype=int)
     clf = bundle.classifier
-    proba = clf.predict_proba(X)[:, list(clf.classes_).index(1)] if 1 in clf.classes_ else np.zeros(len(y))
-    return compute_metrics(y, clf.predict(X), proba)
+    if 1 in clf.classes_:
+        proba = clf.predict_proba(X)[:, list(clf.classes_).index(1)]
+        pred = (proba >= bundle.decision_threshold).astype(int)
+    else:
+        proba, pred = np.zeros(len(y)), clf.predict(X)
+    metrics = compute_metrics(y, pred, proba)
+    metrics["threshold"] = bundle.decision_threshold
+    return metrics
 
 
 def main(argv=None) -> int:
@@ -41,7 +47,7 @@ def main(argv=None) -> int:
     p.add_argument("--dataset", required=True)
     args = p.parse_args(argv)
     m = evaluate(args.model, args.dataset)
-    print(f"External test on {args.dataset} ({m['n_samples']} rows)")
+    print(f"External test on {args.dataset} ({m['n_samples']} rows, threshold {m['threshold']:.2f})")
     for k in ("accuracy", "precision", "recall", "f1_score", "roc_auc"):
         if m.get(k) is not None:
             print(f"  {k}: {m[k]:.3f}")

@@ -33,8 +33,12 @@ def predict_waterfall(model_path, matrix: np.ndarray) -> MLDetectionResult:
         row = np.array([[feats[n] for n in bundle.feature_names]], dtype=float)
         clf = bundle.classifier
         classes = list(clf.classes_)
-        confidence = float(clf.predict_proba(row)[0][classes.index(1)]) if 1 in classes else 0.0
-        return MLDetectionResult(AVAILABLE, bool(clf.predict(row)[0]), confidence, bundle.model_version)
+        if 1 in classes:
+            confidence = float(clf.predict_proba(row)[0][classes.index(1)])
+            detected = confidence >= bundle.decision_threshold
+        else:
+            confidence, detected = 0.0, bool(clf.predict(row)[0])
+        return MLDetectionResult(AVAILABLE, detected, confidence, bundle.model_version)
     except Exception as exc:  # never take the pipeline down
         logger.warning("Waterfall inference failed: %s", exc)
         return MLDetectionResult(MODEL_INVALID, None, None, bundle.model_version, f"Inference failed: {exc}")

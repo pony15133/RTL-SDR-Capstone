@@ -40,6 +40,16 @@ class ModelBundle:
     feature_names: tuple
     metadata: dict = field(default_factory=dict)
 
+    @property
+    def decision_threshold(self) -> float:
+        """Probability above which a capture counts as a satellite (0.5 for
+        models trained before thresholds were tuned)."""
+        try:
+            value = float(self.metadata.get("decision_threshold", 0.5))
+        except (TypeError, ValueError):
+            return 0.5
+        return value if 0.0 < value < 1.0 else 0.5
+
     def save(self, model_path: Path) -> Path:
         """Save the classifier (joblib) and a metadata JSON sidecar next to it."""
         model_path = Path(model_path)

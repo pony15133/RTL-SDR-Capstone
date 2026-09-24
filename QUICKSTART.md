@@ -28,7 +28,7 @@ setup.bat --fetch-satnogs
 ./setup.sh --fetch-satnogs
 ```
 
-It finishes by testing the new model on a real pass it has never seen (the CAMRAS RSP-03 data).
+It finishes by testing the new model on a real pass it has never seen (the CAMRAS RSP-03 data). For a bigger, better-labelled dataset (1–2 hours, resumable), and for adding your own passes, see [TRAINING.md](TRAINING.md).
 
 ## 2. Check the dongle (1 minute)
 

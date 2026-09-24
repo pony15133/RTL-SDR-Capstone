@@ -78,7 +78,7 @@ class Settings:
     db_path: Optional[str] = None
     ml_model: Optional[str] = None
     retention: str = "archive-negatives"
-    keep_threshold: float = 0.5
+    keep_threshold: Optional[float] = None  # None = the model's tuned threshold
     tle_file: Optional[str] = None
     tle_cache_dir: str = "tle_cache"
     save_image: bool = True
@@ -155,7 +155,7 @@ def load_settings(args) -> Settings:
         db_path=pick("db_path", None),
         ml_model=pick("ml_model", None),
         retention=str(pick("retention", "archive-negatives")),
-        keep_threshold=float(pick("keep_threshold", 0.5)),
+        keep_threshold=(None if pick("keep_threshold", None) is None else float(pick("keep_threshold", None))),
         tle_file=pick("tle_file", None),
         tle_cache_dir=str(pick("tle_cache_dir", "tle_cache")),
         save_image=not args.no_image and bool(defaults.get("save_image", True)),

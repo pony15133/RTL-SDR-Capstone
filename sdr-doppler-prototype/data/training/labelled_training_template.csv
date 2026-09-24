@@ -1,0 +1,4 @@
+recording_id,capture_id,snr_db,frequency_drift_hz,drift_rate_hz_per_second,smoothness_score,valid_signal_ratio,peak_power,mean_power,occupied_bandwidth_hz,signal_duration_seconds,label,is_synthetic,source_file,sample_rate_hz,nperseg,noverlap,notes
+recording_001,capture_001,12.5,1250.0,42.5,180.2,0.82,8.5,-62.1,2300.0,29.4,1,0,source/capture_001.iq,2000000,1024,512,Example positive satellite candidate label
+recording_002,capture_002,2.1,310.0,11.2,5400.0,0.14,1.7,-78.3,540.0,27.7,0,0,source/capture_002.iq,2000000,1024,512,Example negative/noise label
+recording_003,capture_003,9.8,9800.0,280.0,95.8,0.74,9.9,-59.8,3100.0,35.0,1,0,source/capture_003.iq,2000000,1024,512,Example positive candidate with strong drift

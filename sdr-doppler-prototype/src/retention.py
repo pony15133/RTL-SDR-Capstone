@@ -26,7 +26,9 @@ from typing import Optional
 
 POLICIES = ("keep-all", "archive-negatives", "delete-negatives")
 DEFAULT_POLICY = "keep-all"
-DEFAULT_KEEP_THRESHOLD = 0.5
+#: None = use the model's own decision threshold (tuned when it was trained,
+#: stored in its metadata). A number overrides it.
+DEFAULT_KEEP_THRESHOLD = None
 
 
 @dataclass
@@ -44,10 +46,20 @@ class RetentionOutcome:
     decision: RetentionDecision
 
 
-def decide(*, ml_detection=None, rule_detection=None, threshold: float = DEFAULT_KEEP_THRESHOLD) -> RetentionDecision:
-    """Score the recording. ML confidence wins when the model made a prediction."""
+def decide(*, ml_detection=None, rule_detection=None, threshold=DEFAULT_KEEP_THRESHOLD) -> RetentionDecision:
+    """Score the recording. ML confidence wins when the model made a prediction.
+
+    ``threshold=None`` follows the model's own yes/no decision (which uses
+    the threshold tuned at training time); a number compares the confidence
+    against that number instead."""
     if ml_detection is not None and getattr(ml_detection, "ml_confidence_score", None) is not None:
         score = float(ml_detection.ml_confidence_score)
+        if threshold is None:
+            model_says = getattr(ml_detection, "ml_detection_result", None)
+            keep = bool(model_says) if model_says is not None else score >= 0.5
+            return RetentionDecision(keep, "ml", score,
+                                     f"ML confidence {score:.2f}: model says {'satellite' if keep else 'no satellite'} "
+                                     "(its tuned threshold)")
         keep = score >= threshold
         return RetentionDecision(keep, "ml", score,
                                  f"ML confidence {score:.2f} {'>=' if keep else '<'} threshold {threshold:.2f}")

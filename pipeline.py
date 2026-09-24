@@ -121,6 +121,10 @@ def save_waterfall_image(matrix, path: Path, target_hz: float, doppler: Optional
     fig.tight_layout()
     fig.savefig(path, dpi=90)
     plt.close(fig)
+    # The 128 x 128 matrix itself (32 kB): lets the capture be labelled and
+    # added to the training set later (scripts/label_station_captures.py),
+    # even after the IQ file has been archived or deleted.
+    np.save(path.with_suffix(".npy"), np.asarray(matrix, dtype=np.float16))
     return path
 
 
@@ -196,7 +200,7 @@ def process_recording(
     no_ml: bool = False,
     save_image: bool = False,
     retention_policy: str = DEFAULT_POLICY,
-    keep_threshold: float = DEFAULT_KEEP_THRESHOLD,
+    keep_threshold=DEFAULT_KEEP_THRESHOLD,
     archive_dir: Optional[Path] = None,
     log_failures: bool = False,
     max_detection_seconds: Optional[float] = 120.0,
@@ -360,7 +364,7 @@ def capture_and_detect(
     save_image: bool = False,
     ml_model_path: Optional[Path] = None,
     retention_policy: str = DEFAULT_POLICY,
-    keep_threshold: float = DEFAULT_KEEP_THRESHOLD,
+    keep_threshold=DEFAULT_KEEP_THRESHOLD,
     log_failures: bool = True,
 ) -> PipelineResult:
     """Record now for ``duration`` seconds, then detect -> database -> retention.
@@ -417,7 +421,7 @@ def _build_parser():
     parser.add_argument("--retention", choices=POLICIES, default=DEFAULT_POLICY,
                         help="What to do with the IQ file of a recording judged 'no satellite' (default keep-all)")
     parser.add_argument("--keep-threshold", type=float, default=DEFAULT_KEEP_THRESHOLD,
-                        help="ML confidence needed to count as 'satellite' for retention (default 0.5)")
+                        help="ML confidence needed to keep the IQ file (default: the model's own tuned threshold)")
     return parser
 
 

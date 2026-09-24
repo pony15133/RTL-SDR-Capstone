@@ -14,7 +14,7 @@
     "post_buffer": 30,
     "output_dir": "recordings",
     "retention": "archive-negatives",
-    "keep_threshold": 0.5,
+    "keep_threshold": null,
     "ml_model": "sdr-doppler-prototype/models/random_forest.joblib",
     "save_image": true,
     "tuning_offset_hz": 150000,
@@ -43,4 +43,4 @@
       "waterfall_span_hz": 48000
     }
   ]
-}
+}

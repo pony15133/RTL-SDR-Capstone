@@ -82,12 +82,13 @@ def predict(bundle: ModelBundle, features: FeatureVector) -> MLDetectionResult:
     try:
         classifier = bundle.classifier
         row = array.reshape(1, -1)
-        prediction = classifier.predict(row)[0]
         proba = classifier.predict_proba(row)[0]
         classes = list(classifier.classes_)
         if 1 in classes:
             confidence = float(proba[classes.index(1)])
+            prediction = confidence >= bundle.decision_threshold
         else:
+            prediction = bool(classifier.predict(row)[0])
             # Degenerate case: the model was trained on a single class
             # (e.g. a tiny/unbalanced dataset), so there is no positive-
             # class probability to report.

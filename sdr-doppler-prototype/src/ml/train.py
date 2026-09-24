@@ -19,8 +19,15 @@ Methodology (train / validation / test):
    stratified by label where possible.
 3. Hyperparameters are chosen by F1 on the VALIDATION set only.
 4. The chosen configuration is refit on train + validation.
-5. The TEST set is scored exactly once, at the end. It is never used for
+5. The decision threshold (probability above which a capture counts as a
+   satellite) is chosen from grouped out-of-fold predictions on
+   train + validation - still without touching the test set. Small datasets
+   keep the standard 0.5.
+6. The TEST set is scored exactly once, at the end. It is never used for
    tuning or cross-validation, so its metrics are an honest estimate.
+
+Several CSVs can be combined (--dataset a.csv b.csv), e.g. the SatNOGS set
+plus waterfalls labelled from our own station.
 """
 
 import argparse
@@ -34,10 +41,10 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedGroupKFold, train_test_split
 
 from features.extractor import FEATURE_NAMES
-from features.waterfall_features import WATERFALL_FEATURE_NAMES
+from features.waterfall_features import ADDED_FEATURES, WATERFALL_FEATURE_NAMES
 from ml.evaluation import (
     compute_metrics,
     cross_validate,
@@ -78,6 +85,14 @@ WINDOW_SUFFIX_MARKER = "#"
 
 SPLIT_TRAIN, SPLIT_VAL, SPLIT_TEST = "train", "validation", "test"
 
+DEFAULT_THRESHOLD = 0.5
+#: Candidate decision thresholds for --threshold auto.
+THRESHOLD_GRID = tuple(np.round(np.arange(0.25, 0.751, 0.05), 2))
+#: --threshold auto only moves off 0.5 with at least this much development
+#: data; below it the out-of-fold estimate is too noisy to trust.
+MIN_ROWS_FOR_AUTO_THRESHOLD = 100
+MIN_GROUPS_FOR_AUTO_THRESHOLD = 10
+
 VALIDATION_DISCLAIMER = (
     "This model's evaluation metrics reflect performance on the held-out portion "
     "of the given dataset only. Until validated against a substantial set of real, "
@@ -110,6 +125,8 @@ class TrainingResult:
     search_results: list = field(default_factory=list)
     group_source: str = "row"
     splits_path: Optional[Path] = None
+    threshold: float = DEFAULT_THRESHOLD
+    threshold_selection: dict = field(default_factory=dict)
 
 
 def _invalid_value_mask(series: pd.Series) -> pd.Series:
@@ -177,9 +194,67 @@ def check_synthetic_guard(df: pd.DataFrame, allow_synthetic: bool) -> bool:
 
 
 def load_dataset(csv_path, feature_names=FEATURE_NAMES) -> pd.DataFrame:
-    df = pd.read_csv(csv_path)
+    """One CSV, or a list of CSVs combined (columns outside the feature set
+    may differ between files; missing ones are left empty)."""
+    paths = list(csv_path) if isinstance(csv_path, (list, tuple)) else [csv_path]
+    frames = []
+    for path in paths:
+        part = pd.read_csv(path)
+        if len(paths) > 1:
+            part["dataset_file"] = Path(path).name
+        frames.append(part)
+    df = pd.concat(frames, ignore_index=True, sort=False) if len(frames) > 1 else frames[0]
     validate_dataset(df, feature_names)
     return df
+
+
+def choose_threshold(X, y, groups, *, params, class_weight, random_state, grouped: bool,
+                     requested="auto") -> tuple[float, dict]:
+    """Decision threshold from grouped out-of-fold predictions on the
+    development set (train + validation). Returns (threshold, details).
+
+    The threshold maximising out-of-fold F1 is picked; ties go to the value
+    closest to 0.5. The test set is never involved.
+    """
+    if requested != "auto":
+        value = float(requested)
+        if not 0.0 < value < 1.0:
+            raise DatasetValidationError(f"--threshold must be between 0 and 1, got {requested}")
+        return value, {"method": "fixed", "threshold": value}
+    n_groups = int(np.unique(groups).size)
+    if not grouped or len(y) < MIN_ROWS_FOR_AUTO_THRESHOLD or n_groups < MIN_GROUPS_FOR_AUTO_THRESHOLD:
+        return DEFAULT_THRESHOLD, {
+            "method": "default",
+            "threshold": DEFAULT_THRESHOLD,
+            "reason": (f"auto threshold needs >= {MIN_ROWS_FOR_AUTO_THRESHOLD} rows and "
+                       f">= {MIN_GROUPS_FOR_AUTO_THRESHOLD} recordings grouped by recording "
+                       f"(have {len(y)} rows, {n_groups} groups)"),
+        }
+    min_groups_per_class = min(len(np.unique(groups[y == c])) for c in (0, 1))
+    folds = max(2, min(5, min_groups_per_class))
+    oof = np.full(len(y), np.nan)
+    splitter = StratifiedGroupKFold(n_splits=folds, shuffle=True, random_state=random_state)
+    for tr, te in splitter.split(X, y, groups):
+        model = train_random_forest(X[tr], y[tr], class_weight=class_weight, random_state=random_state, **params)
+        proba = _positive_proba(model, X[te])
+        oof[te] = proba if proba is not None else 0.0
+    ok = ~np.isnan(oof)
+    scores = []
+    for t in THRESHOLD_GRID:
+        m = compute_metrics(y[ok], (oof[ok] >= t).astype(int))
+        scores.append((round(m["f1_score"], 4), -abs(t - 0.5), float(t), m))
+    best = max(scores, key=lambda s: (s[0], s[1]))
+    at_half = compute_metrics(y[ok], (oof[ok] >= 0.5).astype(int))
+    return best[2], {
+        "method": "grouped out-of-fold F1 on train+validation",
+        "threshold": best[2],
+        "folds": folds,
+        "oof_f1_at_threshold": best[3]["f1_score"],
+        "oof_f1_at_0.5": at_half["f1_score"],
+        "oof_recall_at_threshold": best[3]["recall"],
+        "oof_precision_at_threshold": best[3]["precision"],
+        "grid": [{"threshold": s[2], "f1": s[0]} for s in scores],
+    }
 
 
 def split_features_labels(df: pd.DataFrame, feature_names=FEATURE_NAMES):
@@ -416,10 +491,20 @@ def _label_counts(y: np.ndarray) -> dict:
 
 
 def run_training(args: argparse.Namespace) -> TrainingResult:
-    dataset_path = Path(args.dataset)
+    dataset_paths = [Path(p) for p in (args.dataset if isinstance(args.dataset, (list, tuple)) else [args.dataset])]
+    dataset_path = dataset_paths[0] if len(dataset_paths) == 1 else dataset_paths
     print_progress("Loading training dataset", 10, 100)
     feature_names = FEATURE_SETS[getattr(args, "feature_set", "iq")]
-    df = load_dataset(dataset_path, feature_names).reset_index(drop=True)
+    try:
+        df = load_dataset(dataset_path, feature_names).reset_index(drop=True)
+    except DatasetValidationError as exc:
+        added = [n for n in ADDED_FEATURES if n in str(exc)]
+        if added:
+            raise DatasetValidationError(
+                f"{exc}\nThis dataset was built before {', '.join(added)} existed. Recompute its features "
+                "from the saved arrays: python scripts/fetch_satnogs_dataset.py --rebuild-features"
+            ) from exc
+        raise
     trained_on_synthetic_data = check_synthetic_guard(df, args.allow_synthetic)
 
     print_progress("Splitting train / validation / test", 25, 100)
@@ -468,8 +553,18 @@ def run_training(args: argparse.Namespace) -> TrainingResult:
         random_state=args.random_state,
     )
 
+    print_progress("Choosing decision threshold (out-of-fold, train + validation)", 72, 100)
+    threshold, threshold_info = choose_threshold(
+        X_dev, y_dev, groups_dev, params=best_params, class_weight=args.class_weight,
+        random_state=args.random_state, grouped=group_source != "row",
+        requested=getattr(args, "threshold", "auto"),
+    )
+
     print_progress("Evaluating once on held-out test set", 80, 100)
-    metrics = compute_metrics(y_test, model.predict(X_test), _positive_proba(model, X_test))
+    test_proba = _positive_proba(model, X_test)
+    test_pred = (test_proba >= threshold).astype(int) if test_proba is not None else model.predict(X_test)
+    metrics = compute_metrics(y_test, test_pred, test_proba)
+    metrics["threshold"] = threshold
 
     # Cross-validation on the development set only - the test set stays untouched.
     cv_model = RandomForestClassifier(
@@ -520,7 +615,9 @@ def run_training(args: argparse.Namespace) -> TrainingResult:
         "cross_validation": cv_result,
         "feature_importance": [{"feature": name, "importance": value} for name, value in importance_report],
         "trained_on_synthetic_data": trained_on_synthetic_data,
-        "dataset_path": str(dataset_path),
+        "dataset_path": str(dataset_path) if not isinstance(dataset_path, list) else [str(p) for p in dataset_path],
+        "decision_threshold": threshold,
+        "threshold_selection": threshold_info,
         "random_state": args.random_state,
         "val_size": args.val_size,
         "test_size": args.test_size,
@@ -567,12 +664,18 @@ def run_training(args: argparse.Namespace) -> TrainingResult:
         search_results=search_results,
         group_source=group_source,
         splits_path=splits_path,
+        threshold=threshold,
+        threshold_selection=threshold_info,
     )
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train the Random Forest satellite-candidate classifier.")
-    parser.add_argument("--dataset", required=True, type=Path, help="Path to labelled training CSV")
+    parser.add_argument("--dataset", required=True, type=Path, nargs="+",
+                        help="Labelled training CSV(s); several are combined")
+    parser.add_argument("--threshold", default="auto",
+                        help="Decision threshold: 'auto' (chosen from grouped out-of-fold F1 on train+validation; "
+                             "0.5 for small datasets) or a number such as 0.5")
     parser.add_argument("--output", required=True, type=Path, help="Path to save the trained model (.joblib)")
     parser.add_argument("--model-version", default=None, help="Explicit model version string (default: timestamp-based)")
     parser.add_argument("--feature-set", choices=sorted(FEATURE_SETS), default="iq",
@@ -638,6 +741,13 @@ def _print_report(result: TrainingResult) -> None:
     print(f"Selected hyperparameters (by validation F1): {result.best_params}")
     print()
     _print_metrics_block("Validation set (used to pick hyperparameters)", result.val_metrics)
+    print()
+    if result.threshold_selection.get("method", "").startswith("grouped"):
+        info = result.threshold_selection
+        print(f"Decision threshold: {result.threshold:.2f} (out-of-fold F1 {info['oof_f1_at_threshold']:.3f} "
+              f"vs {info['oof_f1_at_0.5']:.3f} at 0.50)")
+    else:
+        print(f"Decision threshold: {result.threshold:.2f}")
     print()
     _print_metrics_block("Test set (held out, scored once - report THESE numbers)", result.metrics)
     print()

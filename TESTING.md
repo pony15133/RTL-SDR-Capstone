@@ -20,7 +20,7 @@ A check of every feature, in order. Each test gives the command, what you should
 | # | Do | Expect | ✓ |
 |---|---|---|---|
 | A1 | `setup.bat` (or `./setup.sh`) | Ends with "Setup finished". `capture_config.json` exists. `sdr-doppler-prototype\models\random_forest.joblib` is new | ☐ |
-| A2 | `python -m pytest` | About 334 passed, 3 deselected, 0 failed (2 skipped without the sgp4 package is fine) | ☐ |
+| A2 | `python -m pytest` | About 352 passed, 3 deselected, 0 failed (2 skipped without the sgp4 package is fine) | ☐ |
 | A3 | `python pipeline.py --doctor` | `[OK ]` for platform, output folder and Python packages. rtl_sdr/rtl_test are OK once the tools are installed | ☐ |
 | A4 | Rename `.venv` to `.venv-broken`, run `setup.bat` again | It builds a fresh `.venv` and finishes. Delete `.venv-broken` afterwards | ☐ |
 
@@ -90,11 +90,17 @@ A check of every feature, in order. Each test gives the command, what you should
 | H1 | `python train_model.py --dataset data\training\rsp03_camras_features.csv --output models\random_forest.joblib` | Train/validation/test counts, "Grouped by: recording_id", separate validation and test metrics | ☐ |
 | H2 | Open `models\random_forest_splits.csv` | Each `recording_group` appears in only one `split` | ☐ |
 | H3 | `python train_model.py --dataset data\training\synthetic_example.csv --output models\t.joblib` | Refused: synthetic data needs `--allow-synthetic` | ☐ |
-| H4 | `python scripts\fetch_satnogs_dataset.py --per-class 150` (internet) | Prints "N good / M bad so far" as it goes; both numbers grow; it ends without errors | ☐ |
+| H4 | `python scripts\fetch_satnogs_dataset.py --per-class 150` (internet) | Prints "N signal / M no signal so far" as it goes; both numbers grow; it ends without errors | ☐ |
 | H5 | Open 3 images in `data\satnogs\parse_check\` | Right half matches left half (same features, not upside-down) | ☐ |
 | H6 | `python train_model.py --feature-set waterfall --dataset data\training\satnogs_waterfall_features.csv --output models\waterfall_rf.joblib` | Trains; "Grouped by: recording_id" (station); note the test F1: ____ | ☐ |
 | H7 | `python scripts\evaluate_model.py --model models\waterfall_rf.joblib --dataset data\training\rsp03_waterfall_features.csv` | External test on RSP-03; note the F1 / ROC AUC: ____ | ☐ |
 | H8 | Train on a copy of the SatNOGS CSV with all `label` 0 rows deleted | Refused: "only one class" | ☐ |
+| H9 | Output of H6 | A "Decision threshold: 0.xx" line; `models\waterfall_rf.json` has `decision_threshold` | ☐ |
+| H10 | `python scripts\fetch_satnogs_dataset.py --refresh-labels` (internet) | "Checked N observations: X relabelled ..."; CSV now has `waterfall_status` and `label_source` columns | ☐ |
+| H11 | `python scripts\review_labels.py` | `data\satnogs\review\sheet_01.png` + `label_review.csv`; the sheet shows waterfalls where the model and the label disagree | ☐ |
+| H12 | Put `1`/`0`/`x` in a few `your_label` cells, then `python scripts\review_labels.py --apply data\satnogs\review\label_review.csv` | "Applied: N relabelled, M confirmed, K dropped"; those rows have `label_source` = manual | ☐ |
+| H13 | After E1 (demo): `python scripts\label_station_captures.py --include-simulated --list` | Lists the demo captures with their waterfall images (`*_waterfall.npy` exists next to each PNG) | ☐ |
+| H14 | After a real pass (L): `python scripts\label_station_captures.py`, answer 1 or 0 | Image opens; row added to `data\training\station_waterfall_features.csv`; next `setup` says "+ your own labelled passes" | ☐ |
 
 ## I. Database and history
 

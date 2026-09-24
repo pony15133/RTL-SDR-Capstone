@@ -11,6 +11,13 @@
     python setup_station.py                       # quick setup
     python setup_station.py --fetch-satnogs       # + real multi-satellite training data
     python setup_station.py --fetch-satnogs --per-class 300
+    python setup_station.py --fetch-satnogs --big-data     # ~3000 observations over 120 days (1-2 h)
+    python setup_station.py --refresh-labels               # relabel saved SatNOGS data by waterfall vetting
+
+The waterfall model trains on every labelled set that exists:
+data/training/satnogs_waterfall_features.csv and, once you've labelled
+your own passes (scripts/label_station_captures.py),
+data/training/station_waterfall_features.csv.
 """
 
 from __future__ import annotations
@@ -38,7 +45,13 @@ def run(cmd, cwd=REPO) -> int:
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Set up this computer as a capture station.")
     p.add_argument("--fetch-satnogs", action="store_true", help="Download SatNOGS training data and train the waterfall model")
-    p.add_argument("--per-class", type=int, default=200, help="SatNOGS observations per class (good / bad)")
+    p.add_argument("--per-class", type=int, default=None,
+                   help="SatNOGS observations per class (signal / no signal); default 200, or 1500 with --big-data")
+    p.add_argument("--big-data", action="store_true",
+                   help="With --fetch-satnogs: a large download (1500 per class over 120 days, plus extra "
+                        "METEOR/ISS observations). Resumable - stop with Ctrl+C and run again to continue")
+    p.add_argument("--refresh-labels", action="store_true",
+                   help="Relabel the saved SatNOGS observations from their waterfall vetting before training")
     p.add_argument("--skip-doctor", action="store_true")
     args = p.parse_args(argv)
     problems = []
@@ -59,11 +72,26 @@ def main(argv=None) -> int:
 
     step("3/4 Waterfall model (SatNOGS)")
     satnogs = PROTO / "data" / "training" / "satnogs_waterfall_features.csv"
+    station = PROTO / "data" / "training" / "station_waterfall_features.csv"
+    fetch = [PY, "scripts/fetch_satnogs_dataset.py"]
+    if satnogs.exists():
+        # Older datasets lack newer feature columns: recompute from the saved arrays (seconds, no download).
+        run(fetch + ["--rebuild-features"], cwd=PROTO)
+    if args.refresh_labels and satnogs.exists():
+        if run(fetch + ["--refresh-labels"], cwd=PROTO) != 0:
+            problems.append("relabelling stopped early - run setup with --refresh-labels again to continue")
     if args.fetch_satnogs:
-        if run([PY, "scripts/fetch_satnogs_dataset.py", "--per-class", args.per_class], cwd=PROTO) != 0:
+        per_class = args.per_class or (1500 if args.big_data else 200)
+        cmd = fetch + ["--per-class", per_class]
+        if args.big_data:
+            cmd += ["--days-back", 120, "--preset", "station"]
+        if run(cmd, cwd=PROTO) != 0:
             problems.append("SatNOGS download stopped early - rerun setup with --fetch-satnogs to resume")
     if satnogs.exists():
-        if run([PY, "train_model.py", "--feature-set", "waterfall", "--dataset", satnogs,
+        datasets = [satnogs] + ([station] if station.exists() else [])
+        if station.exists():
+            print(f"  + your own labelled passes: {station.name}")
+        if run([PY, "train_model.py", "--feature-set", "waterfall", "--dataset", *datasets,
                 "--output", "models/waterfall_rf.joblib", "--model-version", "satnogs_waterfall_rf"], cwd=PROTO) != 0:
             problems.append("waterfall model training failed (see above)")
         else:

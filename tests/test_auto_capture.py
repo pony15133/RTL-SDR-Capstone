@@ -171,4 +171,6 @@ def test_offset_tuning_doppler_and_waterfall_are_recorded(tmp_path, config, tle_
     assert row["doppler_corrected"] == 1 and row["doppler_max_hz"] > 0
     assert summary["doppler_corrected"] is True
     assert row["waterfall_image_path"] and Path(row["waterfall_image_path"]).exists()
+    # the 128x128 matrix is kept next to the image, for labelling our own passes later
+    assert Path(row["waterfall_image_path"]).with_suffix(".npy").exists()
     assert summary["waterfall_ml"] in ("MODEL_NOT_AVAILABLE", "AVAILABLE")
