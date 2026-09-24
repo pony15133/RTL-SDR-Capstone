@@ -5,17 +5,18 @@ modular, testable Python component that controls an RTL-SDR Blog V3 via the
 official `rtl_sdr` command-line tool and records raw IQ samples to disk for
 a given frequency/period, with JSON metadata alongside every recording.
 
-This is **Phase 1** of the eventual autonomous satellite-detection pipeline:
+It is one stage of the project's automatic satellite-capture pipeline:
 
 ```
-SatNOGS / Pass Prediction → Scheduler → RTL-SDR Recording Manager → Raw IQ File
-    → Signal Processing / Feature Extraction → ML Confidence Scoring → Keep/Discard
+Pass prediction (rtl_recorder/passes.py) → auto_capture.py → RTL-SDR Recording Manager → Raw IQ File
+    → Signal Processing / Feature Extraction → rule + ML detection → database → keep/archive/delete
 ```
 
-Only the **Recording Manager** (the middle box) is implemented here. It
-does not know about SatNOGS, orbital mechanics, or signal processing -
-those are future, separate components that will call this module through
-its public interface.
+This package holds the **Recording Manager** plus the pass-prediction
+(`passes.py`) and environment-check (`doctor.py`) helpers. The recorder
+itself does not do signal processing; the rest of the chain lives in
+`../sdr-doppler-prototype/` and is driven by `../auto_capture.py` /
+`../pipeline.py` through the recorder's public interface.
 
 ## 1. Purpose
 
@@ -47,17 +48,20 @@ rtl_recorder/
     exceptions.py       Exception hierarchy used internally
     utils.py             Executable discovery, expected file size, disk space
     scheduler.py           Wall-clock wait-until-a-time-of-day (--start-time/--start-at)
+    passes.py              TLE download/cache + pass prediction (AOS/LOS/max elevation/Doppler)
+    doctor.py              Environment check: rtl_sdr/rtl_test, device, folders, packages
     main.py                 CLI entry point (manual, simulation, and scheduled modes)
 recorder.py         Thin root-level wrapper: `python recorder.py ...`
 tests/
     test_validation.py, test_filenames.py, test_metadata.py, test_recorder.py,
-    test_scheduler.py, test_main_scheduling.py
+    test_scheduler.py, test_main_scheduling.py, test_passes.py, test_cross_platform.py
     fixtures/fake_rtl_sdr.py   Fake rtl_sdr used to unit-test process control
     hardware/test_hardware_kiss92.py   Real-hardware-only tests (see §12)
 ```
 
-`RTLSDRRecorder` never touches SatNOGS, Skyfield, or scheduling logic. A
-future scheduler calls it through `record()` / `record_pass()` (or the
+`RTLSDRRecorder` never touches pass prediction or signal processing.
+`auto_capture.py` (repo root) calls it through `record_pass()`, and
+`pipeline.py` through `record()` (or the
 lower-level `start_recording()`/`stop_recording()`/`cancel_recording()`/
 `check_recording_status()` primitives) and only ever gets a
 `RecordingResult` back - it never needs to catch exceptions for expected
@@ -241,7 +245,7 @@ result.output_file
 result.metadata_file
 result.error_message
 
-# Lower-level primitives, for advanced/async use by a future scheduler:
+# Lower-level primitives, for advanced/async use:
 recorder.start_recording(...)
 recorder.stop_recording()
 recorder.cancel_recording()
@@ -298,8 +302,6 @@ sidecar next to the `.iq` file, e.g.
 - Only one RTL-SDR device is managed per `RTLSDRRecorder` instance; a
   second concurrent `record()` call reports `DEVICE_BUSY` rather than
   queuing or interrupting the active recording (by design - see spec §16).
-- `record_pass()` (scheduled AOS/LOS recording) is not implemented yet
-  (Phase 2).
 - Frequency validation assumes the R820T2's normal tuning range
   (24 MHz-1766 MHz); RTL-SDR "direct sampling" mode for HF reception below
   that is out of scope.
@@ -308,19 +310,20 @@ sidecar next to the `.iq` file, e.g.
 - The Windows graceful-stop path (CTRL_BREAK_EVENT) is implemented but
   only exercised by manual testing on Windows - the automated test suite's
   fake-`rtl_sdr` fixture only covers the POSIX SIGINT path.
-- No Doppler correction, frequency tracking, or retuning during a
-  recording - the centre frequency is fixed for the whole capture.
+- No frequency tracking or retuning during a recording - the centre
+  frequency is fixed for the whole capture. Doppler is removed afterwards,
+  in processing (`sdr-doppler-prototype/src/doppler.py`), from the TLE
+  prediction.
 
-## 15. Future Integration
+## 15. How the rest of the project uses this package
 
-Kept deliberately out of this module, to be layered on top later:
-SatNOGS API integration, pass scheduling (Skyfield), Doppler correction,
-signal detection / feature extraction, ML confidence scoring,
-keep/discard logic, database storage, a systemd service, and 24/7
-autonomous operation. The scheduler will call this recorder only through
-`record()` / `record_pass()` (or the lower-level start/stop/cancel/status
-primitives), so none of that work should require changes inside
-`rtl_recorder/`.
+Pass scheduling, Doppler correction, detection, ML scoring, keep/discard
+and database storage are built on top of this package without changing
+the recorder: see `../auto_capture.py` (predict -> `record_pass()` ->
+process -> store), `../pipeline.py` (`record()` -> process -> store) and
+the root README. Still not provided: a system service (systemd / Windows
+service) for running unattended across reboots - `run_station` runs in a
+terminal window.
 
 ## 16. Testing
 
