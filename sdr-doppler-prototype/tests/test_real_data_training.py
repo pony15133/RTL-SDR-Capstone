@@ -106,7 +106,7 @@ def test_refresh_labels_relabels_from_waterfall_vetting(tmp_path, monkeypatch):
     assert df.loc[5001, "label"] == 0 and df.loc[5003, "label"] == 1
     assert df.loc[5001, "label_source"] == "waterfall" and df.loc[5002, "label_source"] == "status"
     # waterfall-only drops the unvetted ones
-    r2 = fetch.refresh_labels(csv, "waterfall-only", page_delay=0)
+    r2 = fetch.refresh_labels(csv, "waterfall-only", page_delay=0, redo=True)
     assert r2["dropped"] == 2 and len(pd.read_csv(csv)) == 4
 
 
@@ -252,3 +252,101 @@ def test_rsp03_builder_makes_standard_waterfall_rows(tmp_path):
     df = rsp03.build(iq, tmp_path)
     assert len(df) == 1 and df.loc[0, "label"] == 1
     assert df.loc[0, "wf_centre_active_frac"] > 0.8 and df.loc[0, "wf_vert_coherence"] > 0.1
+
+
+# --------------------------------------------------------------------------- SatNOGS rate limit
+
+def _http_429(url, retry_after):
+    import urllib.error
+    from email.message import Message
+
+    h = Message()
+    h["Retry-After"] = str(retry_after)
+    return urllib.error.HTTPError(url, 429, "Too Many Requests", h, None)
+
+
+def test_long_rate_limit_is_raised_not_slept(monkeypatch):
+    calls = []
+
+    def urlopen(req, timeout):
+        calls.append(req.full_url)
+        raise _http_429(req.full_url, 3450)
+
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(fetch.time, "sleep", lambda s: pytest.fail("must not sleep for an hour inside http_get"))
+    with pytest.raises(fetch.RateLimited) as info:
+        fetch.http_get(fetch.API + "?format=json")
+    assert info.value.wait_seconds == 3450 and len(calls) == 1
+
+
+def test_wait_out_rate_limit_counts_down_or_stops(capsys):
+    slept = []
+    assert fetch.wait_out_rate_limit(fetch.RateLimited(600), no_wait=False, sleep=slept.append) is True
+    assert sum(slept) == pytest.approx(630) and max(slept) <= 300
+    out = capsys.readouterr().out
+    assert "pause" in out and "min to go" in out and "Continuing" in out
+    assert fetch.wait_out_rate_limit(fetch.RateLimited(600), no_wait=True, sleep=slept.append) is False
+
+
+def test_refresh_saves_progress_and_resumes_after_rate_limit(tmp_path, monkeypatch):
+    csv, _ = _dataset(tmp_path, n_per_class=30, n_stations=5)
+    served = {"n": 0}
+
+    def http_get(url, **kw):
+        served["n"] += 1
+        if served["n"] == 28:  # allowance runs out part-way
+            raise fetch.RateLimited(3000)
+        sid = int(url.split("id=")[1].split("&")[0])
+        return json.dumps([{"id": sid, "status": "good", "waterfall_status": "with-signal"}]).encode(), {}
+
+    monkeypatch.setattr(fetch, "http_get", http_get)
+    r = fetch.refresh_labels(csv, "waterfall", page_delay=0, no_wait=True, sleep=lambda s: None)
+    assert r["stopped_early"] and r["checked"] == 27
+    df = pd.read_csv(csv)
+    assert (df.label_source.fillna("") == "waterfall").sum() >= 25       # progress was saved before stopping
+    r2 = fetch.refresh_labels(csv, "waterfall", page_delay=0, no_wait=True, sleep=lambda s: None)
+    assert not r2.get("stopped_early") and (pd.read_csv(csv).label_source == "waterfall").all()
+    assert r["checked"] + r2["checked"] >= 60 and r2["checked"] <= 35   # the second run skips finished rows
+
+
+def test_download_stops_cleanly_on_rate_limit_with_no_wait(tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch, "http_get", lambda url, **kw: (_ for _ in ()).throw(fetch.RateLimited(3000)))
+    assert fetch.main(["--output", str(tmp_path / "x.csv"), "--arrays-dir", str(tmp_path / "wf"),
+                       "--per-class", "3", "--days-back", "2", "--delay", "0", "--page-delay", "0",
+                       "--no-wait", "--preset", "station"]) == 0
+
+
+def test_preset_phase_fills_its_own_quota_first(tmp_path, monkeypatch):
+    """Phase 1 takes observations of our satellites (up to --preset-per-class), phase 2 the rest."""
+    from datetime import datetime, timedelta, timezone
+    from urllib.parse import parse_qs, urlparse
+
+    now = datetime.now(timezone.utc)
+    obs = []
+    for i in range(40):
+        norad = 57166 if i < 12 else 40000 + i
+        status = "good" if i % 2 == 0 else "bad"
+        obs.append({"id": 7000 + i, "status": status, "waterfall_status": None, "norad_cat_id": norad,
+                    "ground_station": i, "start": (now - timedelta(hours=2 + i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "waterfall": f"https://img.example/{7000 + i}.png", "transmitter_mode": "LRPT"})
+
+    def http_get(url, **kw):
+        q = {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
+        lo = datetime.strptime(q["start"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        hi = datetime.strptime(q["end"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        items = [o for o in obs if o["status"] == q["status"]
+                 and ("norad_cat_id" not in q or str(o["norad_cat_id"]) == q["norad_cat_id"])
+                 and lo <= datetime.strptime(o["start"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) < hi]
+        return json.dumps(items).encode(), {}
+
+    monkeypatch.setattr(fetch, "http_get", http_get)
+    monkeypatch.setattr(fetch, "process", lambda o, *a: {"capture_id": f"satnogs_{o['id']}", "satnogs_id": o["id"],
+                                                          "label": fetch.LABELS[o["status"]], "norad_cat_id": o["norad_cat_id"],
+                                                          **{n: 0.0 for n in WATERFALL_FEATURE_NAMES}})
+    out = tmp_path / "s.csv"
+    assert fetch.main(["--output", str(out), "--arrays-dir", str(tmp_path / "wf"), "--per-class", "10",
+                       "--preset", "station", "--preset-per-class", "4", "--days-back", "3",
+                       "--delay", "0", "--page-delay", "0"]) == 0
+    df = pd.read_csv(out)
+    ours = df[df.norad_cat_id == 57166]
+    assert len(df) == 20 and set(ours.label.value_counts()) == {4}

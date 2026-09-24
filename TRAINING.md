@@ -18,7 +18,9 @@ All commands are run from the repo root, with `.venv\Scripts\python` (Windows) o
 setup.bat --fetch-satnogs --big-data          (./setup.sh on macOS/Linux)
 ```
 
-This downloads 1,500 "signal" and 1,500 "no signal" observations. It samples time windows at random over the last 120 days, so the data isn't dominated by one busy day. It caps how many come from any one station, and it also downloads extra METEOR-M2-3, METEOR-M2-4 and ISS observations (the satellites we record). It takes 1–2 hours. **It is resumable:** press Ctrl+C at any time, and run the same command again to continue. When it finishes, it retrains and prints the test and RSP-03 scores.
+This first downloads up to 150 "signal" and 150 "no signal" observations of the satellites we record (METEOR-M2-3, METEOR-M2-4, ISS). Then it tops up with other satellites until there are 1,500 of each class. It samples time windows at random over the last 120 days, so the data isn't dominated by one busy day, and it caps how many observations come from any one station. When it finishes, it retrains and prints the test and RSP-03 scores.
+
+**SatNOGS allows only a limited number of API requests per hour.** When that runs out, the downloader prints something like "asks us to pause 58 min", shows the time it will continue, counts down every 5 minutes and then carries on by itself. Nothing is frozen, and everything downloaded so far is saved. You can press Ctrl+C at any time and run the same command later to continue, or add `--no-wait` to stop at the first pause. A big run takes a few hours, so it's easiest to leave it running overnight.
 
 Only the 32 kB arrays are kept, not the PNGs: about 100 MB for 3,000 observations.
 
@@ -28,11 +30,7 @@ Why more data: on the first 400 observations, a learning curve (train on 25/50/7
 
 SatNOGS vets every observation twice. `status` (good/bad) says whether data was received. `waterfall_status` (with-signal/without-signal) says whether the signal can be seen in the waterfall, which is exactly the model's question. The downloader now labels by `waterfall_status` and only falls back to `status` when the waterfall wasn't vetted. The `label_source` column records which one was used.
 
-To relabel data downloaded before this change (metadata only, no images, about 10 minutes for 400):
-
-```
-setup.bat --refresh-labels
-```
+New downloads get the waterfall vetting automatically, at no extra cost. You can also relabel data downloaded before this change with `setup.bat --refresh-labels`. It's usually not worth it, though: it needs one API request per observation, so it keeps running into the hourly limit, and in the first 50 of our 400 observations, none changed label. The label review in step 3 catches more. If you do run it, it saves progress every 25 observations and skips finished ones when you run it again.
 
 ## 3. Fix the labels that are still wrong
 

@@ -11,7 +11,7 @@
     python setup_station.py                       # quick setup
     python setup_station.py --fetch-satnogs       # + real multi-satellite training data
     python setup_station.py --fetch-satnogs --per-class 300
-    python setup_station.py --fetch-satnogs --big-data     # ~3000 observations over 120 days (1-2 h)
+    python setup_station.py --fetch-satnogs --big-data     # ~3000 observations over 120 days (a few hours)
     python setup_station.py --refresh-labels               # relabel saved SatNOGS data by waterfall vetting
 
 The waterfall model trains on every labelled set that exists:
@@ -48,8 +48,9 @@ def main(argv=None) -> int:
     p.add_argument("--per-class", type=int, default=None,
                    help="SatNOGS observations per class (signal / no signal); default 200, or 1500 with --big-data")
     p.add_argument("--big-data", action="store_true",
-                   help="With --fetch-satnogs: a large download (1500 per class over 120 days, plus extra "
-                        "METEOR/ISS observations). Resumable - stop with Ctrl+C and run again to continue")
+                   help="With --fetch-satnogs: a large download (1500 per class over 120 days, METEOR/ISS first). "
+                        "A few hours: it pauses when SatNOGS's hourly API allowance runs out and continues by "
+                        "itself. Resumable - stop with Ctrl+C and run again to continue")
     p.add_argument("--refresh-labels", action="store_true",
                    help="Relabel the saved SatNOGS observations from their waterfall vetting before training")
     p.add_argument("--skip-doctor", action="store_true")
