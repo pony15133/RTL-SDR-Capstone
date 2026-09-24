@@ -32,6 +32,7 @@ from storage import (
     save_summary,
     utc_timestamp,
 )
+<<<<<<< HEAD
 
 
 def print_progress(label: str, current: int, total: int) -> None:
@@ -42,6 +43,8 @@ def print_progress(label: str, current: int, total: int) -> None:
     filled = int(width * percent / 100)
     bar = "#" * filled + "-" * (width - filled)
     print(f"{label}: {percent:3d}% |{bar}| {current}/{total}")
+=======
+>>>>>>> 482f8559d715eca22d15970253af36deb909de15
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -128,10 +131,19 @@ def run(args: argparse.Namespace) -> int:
     ml_detection = None if args.no_ml else run_ml_detection(args.ml_model, features)
 
     timestamp = utc_timestamp()
+<<<<<<< HEAD
     session_dir = ensure_session_output_dir(args.output)
     image_path = None
     if args.save_image:
         print_progress("Saving spectrogram image", 90, 100)
+=======
+    # Groups this run's summary/image(s) under their own timestamped folder
+    # instead of a flat output dir - what the GUI's results/image-preview
+    # panels browse as "today's session".
+    session_dir = ensure_session_output_dir(args.output)
+    image_path = None
+    if args.save_image:
+>>>>>>> 482f8559d715eca22d15970253af36deb909de15
         if args.image_chunk_size and args.image_chunk_size > 0:
             chunk_paths = save_chunked_spectrogram_images(
                 spec,
@@ -186,7 +198,13 @@ def run(args: argparse.Namespace) -> int:
     print(f"Result ID: {result_id}")
     print(f"Summary JSON: {summary_path}")
     if image_path:
+<<<<<<< HEAD
         print(f"Spectrogram image: {image_path}")
+=======
+        print(f"spectrogram_image={image_path}")
+    print()
+    print(format_detection_summary(row))
+>>>>>>> 482f8559d715eca22d15970253af36deb909de15
     return 0
 
 

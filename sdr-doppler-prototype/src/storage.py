@@ -19,6 +19,15 @@ def session_dir_name(prefix: str = "session") -> str:
 
 
 def ensure_session_output_dir(base_output_dir: Path, *, prefix: str = "session") -> Path:
+<<<<<<< HEAD
+=======
+    """Create (and return) a fresh timestamped subdirectory under ``base_output_dir``.
+
+    Keeps each run's summary/image output grouped together instead of all
+    runs dumping into one flat folder - what the GUI's "today's session"
+    results/image-preview panels browse.
+    """
+>>>>>>> 482f8559d715eca22d15970253af36deb909de15
     base_output_dir = Path(base_output_dir)
     base_output_dir.mkdir(parents=True, exist_ok=True)
     session_dir = base_output_dir / session_dir_name(prefix=prefix)
@@ -37,6 +46,10 @@ def _human_float(value, *, digits: int = 2, default: str = "N/A") -> str:
 
 
 def format_detection_summary(payload: dict) -> str:
+<<<<<<< HEAD
+=======
+    """Render a detection result payload (as saved by save_summary) as human-readable text."""
+>>>>>>> 482f8559d715eca22d15970253af36deb909de15
     if not payload:
         return "No result available."
 
@@ -70,6 +83,10 @@ def format_detection_summary(payload: dict) -> str:
 
 
 def format_training_summary(payload: dict) -> str:
+<<<<<<< HEAD
+=======
+    """Render a model-training metadata payload (ml/train.py's .json sidecar) as human-readable text."""
+>>>>>>> 482f8559d715eca22d15970253af36deb909de15
     if not payload:
         return "No training result available."
 
@@ -79,12 +96,16 @@ def format_training_summary(payload: dict) -> str:
     feature_importance = payload.get("feature_importance") or []
     model_version = payload.get("model_version") or "unknown"
 
+<<<<<<< HEAD
     val_metrics = payload.get("validation_metrics") or {}
+=======
+>>>>>>> 482f8559d715eca22d15970253af36deb909de15
     lines = [
         "Model training summary",
         "======================",
         f"Model: {model_version}",
         f"Training samples: {payload.get('n_training_samples', 'N/A')}",
+<<<<<<< HEAD
         f"Validation samples: {payload.get('n_validation_samples', 'N/A')}",
         f"Test samples: {payload.get('n_test_samples', 'N/A')}",
     ]
@@ -97,6 +118,9 @@ def format_training_summary(payload: dict) -> str:
     lines += [
         "",
         f"Test-set results ({payload.get('evaluation_set', 'held-out')})",
+=======
+        f"Test samples: {payload.get('n_test_samples', 'N/A')}",
+>>>>>>> 482f8559d715eca22d15970253af36deb909de15
         f"Accuracy: { _human_float(metrics.get('accuracy'), digits=3, default='N/A') }",
         f"Precision: { _human_float(metrics.get('precision'), digits=3, default='N/A') }",
         f"Recall: { _human_float(metrics.get('recall'), digits=3, default='N/A') }",
@@ -105,7 +129,11 @@ def format_training_summary(payload: dict) -> str:
     ]
 
     if cv.get("performed"):
+<<<<<<< HEAD
         lines.append(f"Cross-validation F1: {cv.get('f1_mean', 'N/A'):.3f} +/- {cv.get('f1_std', 'N/A'):.3f}")
+=======
+        lines.append(f"Cross-validation F1: { _human_float(cv.get('f1_mean'), digits=3) } +/- { _human_float(cv.get('f1_std'), digits=3) }")
+>>>>>>> 482f8559d715eca22d15970253af36deb909de15
     elif cv.get("reason"):
         lines.append(f"Cross-validation: {cv.get('reason')}")
 
