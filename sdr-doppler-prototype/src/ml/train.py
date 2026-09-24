@@ -141,6 +141,13 @@ def validate_dataset(df: pd.DataFrame, feature_names=FEATURE_NAMES) -> None:
         ids = df.loc[invalid_labels, "capture_id"].tolist()
         raise DatasetValidationError(f"'label' column must be 0 or 1; invalid at capture_id {ids}")
 
+    if label_numeric.nunique() < 2:
+        only = int(label_numeric.dropna().iloc[0]) if label_numeric.notna().any() else "?"
+        raise DatasetValidationError(
+            f"Dataset has only one class (label {only}). A classifier needs examples of both "
+            "'signal' (1) and 'no signal' (0) - collect the missing class first."
+        )
+
     duplicate_ids = df["capture_id"][df["capture_id"].duplicated()].tolist()
     if duplicate_ids:
         raise DatasetValidationError(f"Duplicate capture_id value(s): {duplicate_ids}")

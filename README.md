@@ -4,7 +4,7 @@ Capstone project: **database of signals, position histories, archiving and statu
 
 The system predicts when satellites pass overhead, records their radio signal with an RTL-SDR, removes the Doppler shift, decides with a rule-based detector and two machine-learning models whether a satellite was actually captured, stores everything in a database, keeps only the recordings worth keeping, and shows it all on a live dashboard.
 
-> **Running the station with a dongle? Start with [QUICKSTART.md](QUICKSTART.md).** `setup`, then `check_dongle`, then `run_station`.
+> **Running the station with a dongle? Start with [QUICKSTART.md](QUICKSTART.md).** To check every feature by hand, follow [TESTING.md](TESTING.md). `setup`, then `check_dongle`, then `run_station`.
 
 ```
  TLE (CelesTrak)            iq-recorder                     sdr-doppler-prototype

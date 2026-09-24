@@ -131,22 +131,33 @@ def test_our_corrected_recording_looks_like_a_good_satnogs_waterfall():
 # --------------------------------------------------------------------------- downloader (mocked network)
 
 def _fake_api(n_good=6, n_bad=6):
+    """Mimics network.satnogs.org: plain JSON list, start/end filters,
+    no Link header, and HTTP 400 for out-of-range pages."""
+    import urllib.error
+    from datetime import datetime, timedelta, timezone
+    from urllib.parse import parse_qs, urlparse
+
+    now = datetime.now(timezone.utc)
     obs = []
     for i in range(n_good + n_bad):
         status = "good" if i < n_good else "bad"
+        started = now - timedelta(hours=3 + 13 * (i % 6))            # spread over several 12 h windows
         obs.append({"id": 1000 + i, "status": status, "norad_cat_id": 25544, "transmitter_mode": "FM",
                     "observation_frequency": 437800000, "max_altitude": 40.0, "station_name": f"ST{i % 4}",
-                    "ground_station": i % 4, "start": "2026-09-23T10:00:00Z",
+                    "ground_station": i % 4, "start": started.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "waterfall": f"https://img.example/{1000 + i}.png"})
     pngs = {o["waterfall"]: satnogs_like_png(o["status"] == "good", seed=o["id"]) for o in obs}
 
     def http_get(url, **kw):
         if url.startswith(fetch.API):
-            status = "good" if "status=good" in url else "bad"
-            page = 1 if "page=" not in url else int(url.split("page=")[1].split("&")[0])
-            items = [o for o in obs if o["status"] == status]
-            chunk = items[(page - 1) * 4: page * 4]              # 4 per page, no Link header
-            return json.dumps(chunk).encode(), {}
+            q = {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
+            if "page" in q:
+                raise urllib.error.HTTPError(url, 400, "Bad Request", {}, None)
+            lo = datetime.strptime(q["start"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            hi = datetime.strptime(q["end"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            items = [o for o in obs if o["status"] == q["status"] and
+                     lo <= datetime.strptime(o["start"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) < hi]
+            return json.dumps(items).encode(), {}
         return pngs[url], {}
 
     return http_get
@@ -156,7 +167,7 @@ def test_downloader_builds_trainable_dataset(tmp_path, monkeypatch):
     monkeypatch.setattr(fetch, "http_get", _fake_api())
     out = tmp_path / "satnogs.csv"
     args = ["--output", str(out), "--arrays-dir", str(tmp_path / "wf"), "--per-class", "6",
-            "--delay", "0", "--page-delay", "0", "--parse-checks", "2"]
+            "--delay", "0", "--page-delay", "0", "--parse-checks", "2", "--days-back", "5"]
     assert fetch.main(args) == 0
 
     df = pd.read_csv(out)
@@ -207,3 +218,26 @@ def test_external_evaluation_on_committed_rsp03_waterfall_set(tmp_path):
     spec.loader.exec_module(ev)
     m = ev.evaluate(res.model_path, data)
     assert m["n_samples"] == 111 and m["accuracy"] > 0.9
+
+
+def test_training_refuses_a_single_class_dataset(tmp_path):
+    from ml.train import DatasetValidationError, build_arg_parser, run_training
+
+    df = pd.read_csv(ROOT / "data" / "training" / "rsp03_waterfall_features.csv")
+    one = tmp_path / "one.csv"
+    df[df.label == 1].to_csv(one, index=False)
+    with pytest.raises(DatasetValidationError, match="only one class"):
+        run_training(build_arg_parser().parse_args(["--feature-set", "waterfall", "--dataset", str(one),
+                                                    "--output", str(tmp_path / "m.joblib")]))
+
+
+def test_downloader_survives_api_errors(tmp_path, monkeypatch):
+    """A failing window is skipped; the run finishes and reports a missing class."""
+    import urllib.error
+
+    def always_fail(url, **kw):
+        raise urllib.error.HTTPError(url, 503, "busy", {}, None)
+
+    monkeypatch.setattr(fetch, "http_get", always_fail)
+    assert fetch.main(["--output", str(tmp_path / "x.csv"), "--arrays-dir", str(tmp_path / "wf"),
+                       "--per-class", "3", "--days-back", "1", "--delay", "0", "--page-delay", "0"]) == 0
