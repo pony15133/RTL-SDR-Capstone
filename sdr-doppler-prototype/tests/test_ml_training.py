@@ -301,6 +301,16 @@ class TestTrainValTestSplit:
         assert len(set(groups)) == 4
         assert all("#samples=" not in g for g in groups)
 
+    def test_resolve_groups_strips_label_lora_window_suffix(self):
+        # label_lora_chunks.py writes "<path>#window<i>@<t>s"
+        df = pd.DataFrame({
+            "capture_id": [f"c{i}" for i in range(6)],
+            "source_file": [f"C:\\data\\{f}.bin#window{i}@{i}.000s" for f in ("a", "b") for i in range(3)],
+        })
+        groups, source = resolve_groups(df)
+        assert source == "source_file"
+        assert sorted(set(groups)) == ["C:\\data\\a.bin", "C:\\data\\b.bin"]
+
     def test_resolve_groups_prefers_recording_id(self):
         df = _make_chunked_dataframe(n_recordings_per_class=2, chunks_per_recording=3)
         df["recording_id"] = ["same"] * 6 + ["other"] * 6

@@ -70,9 +70,11 @@ DEFAULT_PARAM_GRID = {
     "min_samples_leaf": [1, 3],
 }
 
-#: chunk_bin_to_dataset.py writes source_file as "<path>#samples=<start>-<end>";
-#: everything before this marker identifies the parent recording.
-WINDOW_SUFFIX_MARKER = "#samples="
+#: Chunking scripts write source_file as "<path>#<window>", e.g.
+#: chunk_bin_to_dataset.py "<path>#samples=<a>-<b>" and label_lora_chunks.py
+#: "<path>#window<i>@<t>s". Everything before the "#" identifies the parent
+#: recording, so all windows of one file land in the same split.
+WINDOW_SUFFIX_MARKER = "#"
 
 SPLIT_TRAIN, SPLIT_VAL, SPLIT_TEST = "train", "validation", "test"
 
@@ -231,7 +233,8 @@ def resolve_groups(df: pd.DataFrame) -> tuple[np.ndarray, str]:
 
     Priority:
       1. ``recording_id`` column, if present and filled in.
-      2. ``source_file`` with any ``#samples=<a>-<b>`` window suffix removed,
+      2. ``source_file`` with any ``#...`` window suffix removed
+         (``#samples=<a>-<b>``, ``#window<i>@<t>s``),
          so every chunk cut from one .bin/.iq file shares a group.
       3. ``capture_id`` (each row is its own group - no leakage protection
          possible, reported as such).
