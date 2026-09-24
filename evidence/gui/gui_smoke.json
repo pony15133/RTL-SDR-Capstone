@@ -1,0 +1,59 @@
+{
+  "all_passed": true,
+  "checks": [
+    {
+      "check": "main window opens",
+      "ok": true,
+      "detail": "SDR Doppler Prototype"
+    },
+    {
+      "check": "all function tabs built",
+      "ok": true,
+      "detail": "Visualise IQ, Run Detection, Satellite Passes, Capture History, Train Model, Convert SigMF (.sigmf-data/.sigmf-meta), Open Results Folder"
+    },
+    {
+      "check": "Run Demo Capture completes",
+      "ok": true,
+      "detail": "Running demo capture complete"
+    },
+    {
+      "check": "demo capture stored in the GUI's database",
+      "ok": true,
+      "detail": [
+        [
+          "METEOR-M2-3",
+          "SUCCESS",
+          "DETECTED"
+        ]
+      ]
+    },
+    {
+      "check": "results pop-up window opened",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "Show History lists the demo capture",
+      "ok": true,
+      "detail": "Loading capture history complete"
+    }
+  ],
+  "screenshots": [
+    "01_tab_visualise_iq.png",
+    "02_tab_run_detection.png",
+    "03_tab_satellite_passes.png",
+    "04_tab_capture_history.png",
+    "05_tab_train_model.png",
+    "06_tab_convert_sigmf.png",
+    "07_tab_open_results_folder.png",
+    "08_after_demo_capture.png",
+    "09_capture_history.png"
+  ],
+  "environment": {
+    "python": "3.12.3",
+    "platform": "Linux-6.18.44-fc-v37-x86_64-with-glibc2.39",
+    "tk": 8.6,
+    "git_commit": "ecbe2781682ad0fa4466d63b6216b0d86ca22f12",
+    "generated_utc": "2026-09-24T09:07:28+00:00"
+  }
+}
