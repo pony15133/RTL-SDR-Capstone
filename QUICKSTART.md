@@ -11,6 +11,8 @@ Use `.bat` on Windows and `.sh` on macOS/Linux; everything else is identical.
   - **macOS:** `brew install librtlsdr`
   - **Linux:** `sudo apt install rtl-sdr`
 - An antenna. A V-dipole (~53 cm per arm, 120° apart, horizontal) is ideal for METEOR at 137.9 MHz.
+- About 8 GB of free RAM while a pass is being processed (it peaks around 6.7 GB). On an 8 GB computer, set
+  `"max_detection_seconds": 60` in the `recording` section of `capture_config.json` (step 3) to use about half as much.
 
 ## 1. Set up (once)
 
@@ -46,6 +48,7 @@ Open `capture_config.json`:
 - `station`: your latitude/longitude (Google Maps → right-click → copy coordinates) and height in metres
 - `satellites`: METEOR-M2-3 and METEOR-M2-4 (137.9 MHz, always transmitting) are the best first targets
 - `min_elevation_deg`: raise to 25–30 if buildings block the horizon
+- all keys are listed in the README's Configuration table
 
 ## 4. Run the station
 
@@ -66,7 +69,8 @@ To try it without hardware: `run_station.bat --simulate`. To see the whole chain
 | Look at any recording | `sdr-doppler-prototype/src/visualize.py --input recordings/<file>.iq` |
 | …with Doppler correction | add `--doppler --lat 1.3521 --lon 103.8198` |
 | What's in the database | `sdr-doppler-prototype/src/history.py` |
-| Desktop GUI | `sdr-doppler-prototype/launch_gui.bat` / `launch_gui.sh` |
+| Desktop GUI (maximise the window to see the Results pane) | `sdr-doppler-prototype\launch_gui.bat` / `sdr-doppler-prototype/launch_gui.sh` (run directly, no python prefix) |
+| Full real-pass test with evidence | follow [LIVE_HARDWARE_TEST.md](LIVE_HARDWARE_TEST.md) |
 | Environment check | `pipeline.py --doctor` |
 
 ## If something goes wrong
