@@ -95,29 +95,53 @@ def next_link(headers, body_json):
     return None
 
 
-def iter_observations(status: str, norad: int | None, page_delay: float):
-    params = {"format": "json", "status": status}
+def fetch_window(status: str, norad, start, end, page_delay: float, max_pages: int = 5):
+    """Observations with this status that started inside [start, end).
+
+    Follows the API's Link-header pagination for a few pages. A 400/404 on a
+    later page means "no more pages" (the SatNOGS API rejects out-of-range
+    pages), so it ends the window instead of crashing the whole download.
+    """
+    params = {"format": "json", "status": status,
+              "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"), "end": end.strftime("%Y-%m-%dT%H:%M:%SZ")}
     if norad is not None:
         params["norad_cat_id"] = norad
     url = API + "?" + urllib.parse.urlencode(params)
-    page = 1
-    seen = set()
-    while url:
-        body, headers = http_get(url)
+    for page in range(max_pages):
+        try:
+            body, headers = http_get(url)
+        except urllib.error.HTTPError as exc:
+            if exc.code in (400, 404) and page > 0:
+                return
+            raise
         data = json.loads(body)
         items = data.get("results", []) if isinstance(data, dict) else data
-        fresh = [o for o in items if o.get("id") not in seen]
-        if not fresh:
+        yield from items
+        url = next_link(headers, data)
+        if not url or not items:
             return
-        for obs in fresh:
-            seen.add(obs.get("id"))
-            yield obs
-        nxt = next_link(headers, data)
-        if nxt is None:  # no Link header: fall back to ?page=N
-            page += 1
-            nxt = API + "?" + urllib.parse.urlencode({**params, "page": page})
-        url = nxt
         time.sleep(page_delay)
+
+
+def iter_windows(days_back: int, hours: int = 12):
+    """Consecutive time windows going back from now (newest first)."""
+    from datetime import datetime, timedelta, timezone
+
+    end = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    stop = end - timedelta(days=days_back)
+    while end > stop:
+        start = end - timedelta(hours=hours)
+        yield start, end
+        end = start
+
+
+def count_labels(csv_path: Path) -> dict:
+    counts = {1: 0, 0: 0}
+    if csv_path.exists():
+        with csv_path.open(newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                counts[int(row["label"])] += 1
+    return counts
 
 
 def existing_ids(csv_path: Path) -> set:
@@ -198,6 +222,8 @@ def main(argv=None) -> int:
     p.add_argument("--per-class", type=int, default=200, help="Target number of good AND of bad observations")
     p.add_argument("--norad", type=int, nargs="*", default=None, help="Only these satellites (default: any)")
     p.add_argument("--max-per-station", type=int, default=15, help="Cap per station per class, for variety")
+    p.add_argument("--per-window", type=int, default=8, help="Max observations per class per 12-hour window, for variety")
+    p.add_argument("--days-back", type=int, default=45, help="How far back in time to look")
     p.add_argument("--delay", type=float, default=0.5, help="Seconds between image downloads")
     p.add_argument("--page-delay", type=float, default=1.5, help="Seconds between API pages")
     p.add_argument("--parse-checks", type=int, default=6, help="Save this many side-by-side parse-check images")
@@ -213,37 +239,48 @@ def main(argv=None) -> int:
 
     checks_done: list = []
     targets = args.norad or [None]
-    for status, label in LABELS.items():
-        per_target = max(1, args.per_class // len(targets))
-        for norad in targets:
-            got, per_station = 0, {}
-            already = 0
-            print(f"\n== status={status} (label {label}) NORAD={norad or 'any'}: target {per_target}")
-            for obs in iter_observations(status, norad, args.page_delay):
-                if got >= per_target:
-                    break
-                if str(obs["id"]) in done:
-                    already += 1
-                    got += 1
-                    continue
-                station = obs.get("ground_station")
-                if per_station.get(station, 0) >= args.max_per_station:
-                    continue
+    counts = count_labels(args.output)
+    per_station = {}
+    print(f"Target: {args.per_class} good + {args.per_class} bad (have {counts[1]} good, {counts[0]} bad)")
+    for start, end in iter_windows(args.days_back):
+        if all(counts[label] >= args.per_class for label in LABELS.values()):
+            break
+        # Alternate good/bad inside every window, so the set stays balanced even if interrupted.
+        for status, label in LABELS.items():
+            if counts[label] >= args.per_class:
+                continue
+            for norad in targets:
                 try:
-                    row = process(obs, args, args.arrays_dir, check_dir, checks_done)
-                except Exception as exc:  # one bad download mustn't stop the run
-                    print(f"  skip {obs.get('id')}: {exc}")
+                    observations = list(fetch_window(status, norad, start, end, args.page_delay))
+                except Exception as exc:  # network hiccup: skip this window, keep going
+                    print(f"  window {start:%m-%d %H}h {status}: {exc}")
                     continue
-                if row is None:
-                    continue
-                append_row(args.output, row)
-                done.add(str(obs["id"]))
-                per_station[station] = per_station.get(station, 0) + 1
-                got += 1
-                if got % 10 == 0:
-                    print(f"  {got}/{per_target} (station variety: {len(per_station)})", flush=True)
-                time.sleep(args.delay)
-            print(f"  done: {got} ({already} were already in the CSV)")
+                added = 0
+                for obs in observations:
+                    if counts[label] >= args.per_class or added >= args.per_window:
+                        break
+                    if str(obs.get("id")) in done or obs.get("status") != status:
+                        continue
+                    station = obs.get("ground_station")
+                    if per_station.get((station, label), 0) >= args.max_per_station:
+                        continue
+                    try:
+                        row = process(obs, args, args.arrays_dir, check_dir, checks_done)
+                    except Exception as exc:  # one bad download mustn't stop the run
+                        print(f"  skip {obs.get('id')}: {exc}")
+                        continue
+                    if row is None:
+                        continue
+                    append_row(args.output, row)
+                    done.add(str(obs["id"]))
+                    per_station[(station, label)] = per_station.get((station, label), 0) + 1
+                    counts[label] += 1
+                    added += 1
+                    time.sleep(args.delay)
+        print(f"  {start:%Y-%m-%d %H}h: {counts[1]} good / {counts[0]} bad so far", flush=True)
+    if min(counts.values()) == 0:
+        print("\nWARNING: one class has no observations - training needs both good and bad. "
+              "Run again (it resumes) or raise --days-back.")
     print(f"\nDataset: {args.output}")
     print(f"Parse checks (eyeball these!): {check_dir}")
     print("Next: python train_model.py --feature-set waterfall "
