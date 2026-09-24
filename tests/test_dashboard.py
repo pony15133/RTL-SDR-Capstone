@@ -221,7 +221,7 @@ def test_health_and_pages_render(tmp_path):
     st = _state(tmp_path)
     h = st.health()
     names = [c["name"] for c in h["checks"]]
-    assert "rtl_sdr" in names and "SatDump (METEOR images)" in names and "Disk space" in names
+    assert "rtl_sdr" in names and "SatDump (weather-satellite images)" in names and "Disk space" in names
     server, base = _serve(st)
     try:
         for path in ("/app.js", "/style.css", "/api/passes", "/api/images", "/api/captures?verdict=detected", "/api/health"):

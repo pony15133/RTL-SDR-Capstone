@@ -161,7 +161,7 @@ A check of every feature, in order. Each test gives the command, what you should
 | # | Do | Expect | ✓ |
 |---|---|---|---|
 | N1 | `python sdr-doppler-prototype/src/history.py --review` | Only captures waiting for review, with the verdict and review columns | ☐ |
-| N2 | 📡 Install SatDump; after a kept METEOR pass open its capture → "Decode METEOR images" | Button shows "Decoding…"; later the METEOR images section and the Images page show pictures (or "no images" if the pass was weak) | ☐ |
+| N2 | 📡 Install SatDump; after a kept METEOR pass open its capture → "Decode satellite images" | Button shows "Decoding…"; later the weather-satellite images section and the Images page show pictures (or "no images" if the pass was weak) | ☐ |
 | N3 | `python sdr-doppler-prototype/src/decode.py --pending` | Every kept METEOR capture is decoded or gets a clear status | ☐ |
 | N4 | Set `"min_free_gb": 100000` in `capture_config.json`, run the demo | Pass skipped with "NOT ENOUGH SPACE"; a DISK_FULL event on the Health page; set it back to 2 | ☐ |
 | N5 | 📡 Unplug the dongle just before a pass starts, plug it back in after ~10 s | Health events show RETRY; the rest of the pass is recorded | ☐ |

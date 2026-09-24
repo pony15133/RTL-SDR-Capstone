@@ -2,7 +2,9 @@
 
 Capstone project: **database of signals, position histories, archiving and status monitoring** for a low-cost RTL-SDR ground station.
 
-The system predicts when satellites pass overhead, records their radio signal with an RTL-SDR, removes the Doppler shift, decides with a rule-based detector and two machine-learning models whether a satellite was captured (**satellite found / uncertain / nothing found**), stores everything in a database, keeps only the recordings worth keeping (uncertain ones always wait for a person's review), decodes METEOR images from kept passes, and shows it all in a local web interface.
+The system predicts when satellites pass overhead, records their radio signal with an RTL-SDR, removes the Doppler shift, decides with a rule-based detector and two machine-learning models whether a satellite was captured (**satellite found / uncertain / nothing found**), stores everything in a database, keeps only the recordings worth keeping (uncertain ones always wait for a person's review), decodes the Earth images sent by the METEOR-M weather satellites from kept passes, and shows it all in a local web interface.
+
+> **Note:** METEOR-M2-3 and METEOR-M2-4 are Russian **weather satellites** (not meteors). They are the default targets because they transmit continuously on 137.9 MHz; the detection works for any satellite in the list.
 
 > **Running the station with a dongle? Start with [QUICKSTART.md](QUICKSTART.md).** To check every feature by hand, follow [TESTING.md](TESTING.md). To train on more real data, see [TRAINING.md](TRAINING.md). Every requirement is mapped to code and tests in [REQUIREMENTS.md](REQUIREMENTS.md). `setup`, then `check_dongle`, then `run_station`.
 
@@ -23,7 +25,7 @@ The system predicts when satellites pass overhead, records their radio signal wi
 | `auto_capture.py` | **The whole pipeline in one command**: predict passes → wait → record → detect → database → retention |
 | `pipeline.py` | One recording → detection → database (used by `auto_capture.py`; also a manual CLI) |
 | `capture_config.example.json` | Ground station (Singapore), recording defaults, satellite list (copied to your own `capture_config.json` by setup) |
-| `dashboard.py` + `web/` | Local web interface at http://localhost:8050: Overview, Passes, Captures, Review (uncertain queue), METEOR Images, Settings, Health |
+| `dashboard.py` + `web/` | Local web interface at http://localhost:8050: Overview, Passes, Captures, Review (uncertain queue), Images (weather-satellite pictures), Settings, Health |
 | `station_guard.py` | Long unattended runs: disk-space guard, dongle retries, keep awake, daily log files |
 | `setup.*` / `check_dongle.*` / `run_station.*` | One-time setup, 1-minute hardware test, start dashboard + capture (Windows `.bat`, macOS/Linux `.sh`) |
 | `train_overnight.*` | Large SatNOGS download + retraining, left running overnight ([TRAINING.md](TRAINING.md)) |
@@ -76,7 +78,7 @@ python train_model.py --dataset data/training/rsp03_camras_features.csv --output
 | Separate visualisation, no model needed (Bijaya, 24 Aug) | `src/visualize.py` + GUI tab **Visualise IQ**. Reads rtl_sdr `.iq` (cu8), SigMF/CAMRAS (ci16), `.bin` (complex64), SDR# `.wav` |
 | Cross-platform, no `rtl_sdr.exe` (Bijaya, 24 Aug) | `rtl_recorder/utils.find_executable()` (per-OS search), `rtl_recorder/doctor.py`, `launch_gui.sh` |
 | ML confidence decides whether to keep the IQ file | `src/retention.py`: three levels (detected / uncertain / not_detected, band `uncertain_band`, default 0.3–0.7) + `keep-all` / `archive-negatives` / `delete-negatives` for "nothing found"; uncertain IQ is always kept in `recordings/uncertain/` and reviewed on the web Review page (`src/review.py`) |
-| METEOR images from kept passes | `src/decode.py`: Doppler-corrected baseband → SatDump (`meteor_m2-x_lrpt`, then `_80k`); a decoded uncertain capture is confirmed automatically |
+| Images from the METEOR-M weather satellites | `src/decode.py`: Doppler-corrected baseband → SatDump (`meteor_m2-x_lrpt`, then `_80k`); a decoded uncertain capture is confirmed automatically |
 | Safe long unattended runs | `station_guard.py` + `run_station` restart loop |
 | Proper train / validation / test methodology (Xinyi, 9 Sep) | `src/ml/train.py`: split by recording, tuned on validation, test scored once, `<model>_splits.csv` |
 | Doppler correction | `src/doppler.py`: predicted Doppler curve from TLE + station, removed from every recording; offset tuning keeps the dongle's DC spike away from the signal; `visualize.py --doppler` |

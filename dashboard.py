@@ -10,7 +10,7 @@ Pages (web/index.html + web/app.js, no internet or extra packages needed):
   Captures   every recording with its verdict; open one for all details,
              waterfall, spectrogram, pass track, Doppler and decoded images
   Review     the "uncertain" queue: look at each waterfall, press Signal / Noise
-  Images     decoded METEOR pictures
+  Images     pictures decoded from METEOR-M weather-satellite passes
   Settings   station location, satellites, retention, uncertain band, decoding
   Health     checks (dongle tools, SatDump, models, disk), status log, log file
 
@@ -323,7 +323,7 @@ class DashboardState:
                                "detail": "not found - install the RTL-SDR tools (see QUICKSTART.md), "
                                          "or set RTL_SDR_HOME"})
         sd = decode.find_satdump(rec.get("satdump_path"))
-        checks.append({"name": "SatDump (METEOR images)", "ok": bool(sd),
+        checks.append({"name": "SatDump (weather-satellite images)", "ok": bool(sd),
                        "detail": sd or "not installed - optional, from https://www.satdump.org"})
         for key, path in (("IQ model", self.ml_model), ("Waterfall model", self.wf_model)):
             info = _model_info(path)

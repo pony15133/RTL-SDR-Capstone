@@ -28,7 +28,7 @@ FR = Capstone 1 SRS functional scope · CR = later client and supervisor request
 | CR7 | Uncertain level so a false negative never deletes real data (Khoa; M2 report) | src/retention.py, src/review.py, web Review page | test_pipeline.py, test_review.py | Tuan Anh | Done |
 | CR8 | Position histories and status monitoring (project title) | pass_positions, status_log tables; history.py; web Passes / Health | test_auto_capture.py, test_dashboard.py | Andre | Done |
 | CR9 | Live status web interface | dashboard.py, web/ (Overview, Passes, Captures, Review, Images, Settings, Health) | test_dashboard.py; browser screenshots | Da | Done |
-| CR10 | Decode METEOR images from kept recordings | src/decode.py (SatDump), auto_capture DecodeWorker | test_decode.py, test_station_guard.py | Tuan Anh | Done – needs real-pass check |
+| CR10 | Decode images from the METEOR-M weather satellites in kept recordings | src/decode.py (SatDump), auto_capture DecodeWorker | test_decode.py, test_station_guard.py | Tuan Anh | Done – needs real-pass check |
 | CR11 | Safe long unattended runs | station_guard.py (disk guard, retries, keep awake, daily log); run_station restart loop | test_station_guard.py | Khoa | Done |
 | NFR1 | Performance on standard consumer hardware | Streaming readers; no GPU; background decoding | Full chain demo in 20 s (TESTING.md E) | Da | Done |
 | NFR2 | Reliability despite SDR instability | Retries, loop restart, failed runs logged, row saved before file action | test_station_guard.py, test_pipeline.py | Khoa | Done |

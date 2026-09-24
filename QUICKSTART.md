@@ -10,7 +10,7 @@ Use `.bat` on Windows and `.sh` on macOS/Linux; everything else is identical.
   - **Windows:** download the release zip from <https://ftp.osmocom.org/binaries/windows/rtl-sdr/>, unzip it (e.g. to `C:\rtl-sdr`), and install the **WinUSB** driver for the dongle with [Zadig](https://zadig.akeo.ie/) (Options → List all devices → "Bulk-In, Interface (Interface 0)" → WinUSB → Replace Driver)
   - **macOS:** `brew install librtlsdr`
   - **Linux:** `sudo apt install rtl-sdr`
-- An antenna. A V-dipole (~53 cm per arm, 120° apart, horizontal) is ideal for METEOR at 137.9 MHz.
+- An antenna. A V-dipole (~53 cm per arm, 120° apart, horizontal) is ideal for the METEOR-M weather satellites at 137.9 MHz.
 
 ## 1. Set up (once)
 
@@ -44,7 +44,7 @@ This records 5 seconds of Kiss92 (92.0 MHz) and saves a waterfall picture. A bri
 Open `capture_config.json`:
 
 - `station`: your latitude/longitude (Google Maps → right-click → copy coordinates) and height in metres
-- `satellites`: METEOR-M2-3 and METEOR-M2-4 (137.9 MHz, always transmitting) are the best first targets
+- `satellites`: the METEOR-M2-3 and METEOR-M2-4 weather satellites (137.9 MHz, always transmitting) are the best first targets
 - `min_elevation_deg`: raise to 25–30 if buildings block the horizon
 
 ## 4. Run the station
@@ -60,9 +60,9 @@ The station's web page opens at <http://localhost:8050>. Leave it running; the c
 - **Needs review** (the model wasn't sure): the raw IQ is kept in `recordings/uncertain/` until someone looks at it on the **Review** page and presses *Signal* or *Noise*.
 - **Nothing found**: the raw IQ is archived to `recordings/rejected/` or deleted, as chosen in **Settings**. The waterfall picture is always kept.
 
-Web pages: **Overview** (what's happening now, next pass, results), **Passes**, **Captures** (click one for everything about it), **Review**, **Images** (decoded METEOR pictures), **Settings** (station, satellites, what to do with recordings), **Health** (checks, events, log).
+Web pages: **Overview** (what's happening now, next pass, results), **Passes**, **Captures** (click one for everything about it), **Review**, **Images** (Earth pictures decoded from the METEOR-M weather satellites), **Settings** (station, satellites, what to do with recordings), **Health** (checks, events, log).
 
-Optional, for pictures from METEOR passes: install [SatDump](https://www.satdump.org) (free). Kept METEOR passes are then decoded automatically.
+Optional, for Earth pictures from the METEOR-M weather satellites: install [SatDump](https://www.satdump.org) (free). Their kept passes are then decoded automatically.
 
 To try it without hardware: `run_station.bat --simulate`. To see the whole chain in 20 seconds: `.venv\Scripts\python auto_capture.py --config capture_config.json --demo` (Windows) or `.venv/bin/python auto_capture.py --config capture_config.json --demo`.
 
@@ -82,4 +82,4 @@ To try it without hardware: `run_station.bat --simulate`. To see the whole chain
 - **`usb_claim_interface error` or DEVICE_BUSY:** another program (SDR#, SDR++) has the dongle open. Close it, or unplug and replug the dongle.
 - **"rtl_sdr not found":** see step 1 (install the tools, or set `RTL_SDR_HOME`).
 - **Dashboard says "stalled?":** `auto_capture` stopped. Check its window for the error.
-- **Only noise in every pass:** check the antenna connection, raise `gain` (up to 49), raise `min_elevation_deg`, and try METEOR first.
+- **Only noise in every pass:** check the antenna connection, raise `gain` (up to 49), raise `min_elevation_deg`, and try the METEOR-M weather satellites first.

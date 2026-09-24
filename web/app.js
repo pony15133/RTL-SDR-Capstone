@@ -110,7 +110,7 @@ pages.overview = async el => {
         <a class="tile warn" href="#/review"><b>${T.pending_review ?? 0}</b><span>Waiting for your review</span></a>
         <a class="tile" href="#/captures?verdict=not_detected"><b>${V.not_detected ?? 0}</b><span>Nothing found</span></a>
         <a class="tile ${T.failed ? "bad" : ""}" href="#/captures"><b>${T.failed ?? 0}</b><span>Recording failed</span></a>
-        <a class="tile" href="#/images"><b>${T.decoded ?? 0}</b><span>METEOR images decoded</span></a>
+        <a class="tile" href="#/images"><b>${T.decoded ?? 0}</b><span>Satellite images decoded</span></a>
         <a class="tile" href="#/captures"><b>${T.n ?? 0}</b><span>Recordings in total</span></a>
       </div>
     </section>
@@ -202,7 +202,7 @@ pages.capture = async (el, params, id) => {
     <section class="card s12">
       <div class="row"><div><b>${esc(c.retention_reason || c.notes || "")}</b><div class="small muted">Raw IQ: ${esc(c.iq_retention || "–")}${d.iq_size ? ` · ${gb(d.iq_size)}` : ""}${c.reviewed_by ? ` · reviewed by ${esc(c.reviewed_by)}` : ""}</div></div><span class="spacer"></span>
         <button class="good" data-label="1">${reviewed ? "Mark as" : "It's a"} signal</button><button class="bad" data-label="0">${reviewed ? "Mark as" : "It's"} noise</button>
-        ${isMeteor(c.satellite_name) && d.iq_exists ? `<button id="decode" ${d.decoding || c.decode_status === "decoding" ? "disabled" : ""}>${d.decoding || c.decode_status === "decoding" ? "Decoding…" : "Decode METEOR images"}</button>` : ""}
+        ${isMeteor(c.satellite_name) && d.iq_exists ? `<button id="decode" ${d.decoding || c.decode_status === "decoding" ? "disabled" : ""}>${d.decoding || c.decode_status === "decoding" ? "Decoding…" : "Decode satellite images"}</button>` : ""}
         ${d.iq_exists ? `<a class="btn" href="/file?path=${encodeURIComponent(c.raw_iq_file_path)}">Download IQ</a>` : ""}</div>
       <p class="small muted" style="margin:8px 0 0">Your label always wins over the model, is saved with the capture and is added to the training data for the waterfall model.</p>
     </section>
@@ -221,8 +221,8 @@ pages.capture = async (el, params, id) => {
       <dt>Doppler</dt><dd>${c.doppler_corrected ? `corrected, max ${Math.round(c.doppler_max_hz || 0)} Hz` : "not corrected"}</dd></dl></section>
     <section class="card s4"><h3>Pass track</h3>${skySvg(track.map(p => [p.azimuth_deg, p.elevation_deg]))}</section>
     <section class="card s6"><h3>Predicted Doppler shift</h3>${lineSvg(dop.map(p => (new Date(p.timestamp_utc) - t0) / 1000), dop.map(p => p.doppler_hz), { unit: " Hz" })}</section>
-    <section class="card s6"><h3>METEOR images</h3>${d.decoded_images.length ? `<div class="gallery">${d.decoded_images.map(p => `<a href="${img(p)}" target="_blank" rel="noopener"><img loading="lazy" src="${img(p)}" alt=""><div class="cap">${esc(p.split(/[\\/]/).pop())}</div></a>`).join("")}</div>`
-      : `<p class="muted">${esc(c.decode_status || (isMeteor(c.satellite_name) ? "Not decoded yet." : "Only METEOR passes carry LRPT images."))}</p>`}</section>
+    <section class="card s6"><h3>Weather-satellite images (METEOR-M)</h3>${d.decoded_images.length ? `<div class="gallery">${d.decoded_images.map(p => `<a href="${img(p)}" target="_blank" rel="noopener"><img loading="lazy" src="${img(p)}" alt=""><div class="cap">${esc(p.split(/[\\/]/).pop())}</div></a>`).join("")}</div>`
+      : `<p class="muted">${esc(c.decode_status || (isMeteor(c.satellite_name) ? "Not decoded yet." : "Only the METEOR-M weather satellites send images this station can decode."))}</p>`}</section>
   </div>`;
   el.querySelectorAll("[data-label]").forEach(b => b.onclick = async () => {
     try { const r = await api(`/api/capture/${c.id}/label`, { label: +b.dataset.label, reviewer: reviewer() });
@@ -287,10 +287,10 @@ pages.review = async el => {
 pages.images = async el => {
   const d = await api("/api/images");
   const caps = d.captures || [];
-  el.innerHTML = `<div class="pagehead"><div><h1>METEOR images</h1><p>Pictures decoded from kept METEOR-M passes with SatDump - proof the station received the satellite.</p></div></div>
+  el.innerHTML = `<div class="pagehead"><div><h1>Satellite images</h1><p>Earth pictures transmitted by the METEOR-M weather satellites and decoded from our kept recordings with SatDump - proof the station received the satellite.</p></div></div>
     ${caps.length ? caps.map(c => `<section class="card" style="margin-bottom:16px"><div class="row"><h2 style="margin:0">#${c.id} · ${esc(c.satellite_name)}</h2><span class="muted small">${fmtTime(c.timestamp_utc)}</span><span class="spacer"></span><a href="#/capture/${c.id}" class="small">Capture →</a></div>
       <div class="gallery" style="margin-top:10px">${c.images.map(p => `<a href="${img(p)}" target="_blank" rel="noopener"><img loading="lazy" src="${img(p)}" alt=""><div class="cap">${esc(p.split(/[\\/]/).pop())}</div></a>`).join("")}</div></section>`).join("")
-    : `<section class="card"><div class="empty"><b>No decoded images yet</b>Install SatDump (free, satdump.org) and keep METEOR-M2-3 / M2-4 in your satellite list. Kept METEOR passes are decoded automatically, or open a capture and press "Decode METEOR images".</div></section>`}`;
+    : `<section class="card"><div class="empty"><b>No decoded images yet</b>Install SatDump (free, satdump.org) and keep the METEOR-M2-3 / M2-4 weather satellites in your satellite list. Their kept passes are decoded automatically, or open a capture and press "Decode satellite images".</div></section>`}`;
 };
 
 pages.settings = async el => {
@@ -327,10 +327,10 @@ pages.settings = async el => {
       <div class="bandview" id="bandview" style="margin-top:12px"></div>
       <label class="row small" style="margin-top:10px"><input type="checkbox" id="bandoff" ${R.uncertain_band === null ? "checked" : ""}> Turn off the uncertain level (yes/no only - not recommended)</label></section>
     <section class="card s12"><div class="row"><h2 style="margin:0">Satellites</h2><span class="spacer"></span><button id="addsat">+ Add satellite</button></div>
-      <p class="small muted">Check a satellite is still transmitting on network.satnogs.org. METEOR-M2-3/M2-4 (137.9 MHz) are the best targets for an RTL-SDR.</p>
+      <p class="small muted">Check a satellite is still transmitting on network.satnogs.org. The METEOR-M2-3/M2-4 weather satellites (137.9 MHz) are the best targets for an RTL-SDR.</p>
       <div class="scroll"><table><thead><tr><th>Name</th><th>NORAD id</th><th>Downlink (MHz)</th><th>Gain (dB)</th><th>Waterfall width (kHz)</th><th></th></tr></thead><tbody id="sats"></tbody></table></div></section>
-    <section class="card s6"><h2>METEOR images</h2>
-      <label class="row"><input type="checkbox" data-k="recording.decode" data-bool ${R.decode === false ? "" : "checked"}> Decode kept METEOR passes automatically (needs SatDump)</label>
+    <section class="card s6"><h2>Weather-satellite images</h2>
+      <label class="row"><input type="checkbox" data-k="recording.decode" data-bool ${R.decode === false ? "" : "checked"}> Decode kept METEOR-M weather-satellite passes into images automatically (needs SatDump)</label>
       <label class="field" style="margin-top:10px"><span>SatDump program (leave empty to find it automatically)</span><input data-k="recording.satdump_path" value="${esc(R.satdump_path || "")}" placeholder="C:\\Program Files\\SatDump\\satdump.exe"></label></section>
     <section class="card s6"><h2>Running unattended</h2><div class="form-grid">
       <label class="field"><span>Always keep this much disk free (GB)</span><input data-k="recording.min_free_gb" type="number" min="0" step="0.5" value="${esc(R.min_free_gb ?? 2)}"></label>
