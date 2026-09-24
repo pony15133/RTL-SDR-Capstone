@@ -103,7 +103,6 @@ def test_capture_and_detect_simulated_end_to_end(tmp_path):
     with sqlite3.connect(db_path) as conn:
         count = conn.execute("SELECT COUNT(*) FROM capture_results").fetchone()[0]
     assert count == 1
-<<<<<<< HEAD
 
 
 # --------------------------------------------------------------------------- #
@@ -289,5 +288,3 @@ def test_visualize_doppler_view_on_simulated_pass(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert (tmp_path / "ISS_rec_doppler_corrected.png").exists()
     assert curve.max_abs_hz > 3000  # a real pass-sized Doppler swing was corrected
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15

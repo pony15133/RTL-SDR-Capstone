@@ -63,11 +63,7 @@ def save_chunked_spectrogram_images(
     chunk_size: int,
     overlap: int = 0,
     prefix: str = "spectrogram",
-<<<<<<< HEAD
 ) -> list[Path]:
-=======
-) -> list:
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     """Render a spectrogram in time chunks to stay memory-safe on large captures.
 
     Each chunk is written as a separate PNG with a numbered suffix.
@@ -87,11 +83,7 @@ def save_chunked_spectrogram_images(
         save_spectrogram_image(spec, out_path)
         return [out_path]
 
-<<<<<<< HEAD
     chunk_paths: list[Path] = []
-=======
-    chunk_paths = []
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     start = 0
     chunk_index = 0
     while start < total_rows:

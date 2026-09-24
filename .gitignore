@@ -2,7 +2,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
-<<<<<<< HEAD
 
 # Local virtual environments (any name) - never commit these
 venv/
@@ -38,5 +37,3 @@ tle_cache/
 # Per-station config and runtime state
 capture_config.json
 recordings/
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15

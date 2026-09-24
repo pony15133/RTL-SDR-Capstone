@@ -1,26 +1,9 @@
-<<<<<<< HEAD
-=======
-"""Desktop control panel for the SDR Doppler Prototype.
-
-A Tkinter front-end over the project's existing CLI scripts (train_model.py,
-src/main.py) plus the repo-root auto-capture connector (pipeline.py) - so a
-full capture -> detect -> database run, or a manual detection/training pass,
-can be driven without touching a terminal. Each run's summary JSON and
-spectrogram PNG(s) land in their own timestamped session folder (see
-src/storage.py's ensure_session_output_dir), which the Results and Image
-Preview tabs below browse.
-"""
-
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
 import json
 import os
 import subprocess
 import sys
 import threading
-<<<<<<< HEAD
 from datetime import datetime
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
 from pathlib import Path
 from tkinter import BooleanVar, StringVar, Tk, Toplevel, filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
@@ -48,10 +31,6 @@ except Exception:
 
 APP_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = APP_DIR.parent
-<<<<<<< HEAD
-=======
-PIPELINE_SCRIPT = PROJECT_ROOT / "pipeline.py"
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
 
 
 class SDRDopplerGUI:
@@ -61,7 +40,6 @@ class SDRDopplerGUI:
         self.root.geometry("1150x820")
         self.root.minsize(980, 650)
 
-<<<<<<< HEAD
         self.function_var = StringVar(value="Visualise IQ")
         self.dataset_var = StringVar(value=str(APP_DIR / "data" / "training" / "synthetic_example.csv"))
         self.model_var = StringVar(value=str(APP_DIR / "models" / "random_forest.joblib"))
@@ -71,33 +49,10 @@ class SDRDopplerGUI:
         self.meta_var = StringVar(value="")
         self.sigmf_data_var = StringVar(value="")
         self.convert_output_var = StringVar(value=str(APP_DIR / "data" / "raw" / "converted_capture.npy"))
-=======
-        # Auto Capture (pipeline.py: recorder -> detect -> database)
-        self.auto_satellite_var = StringVar(value="METEOR-M2-4")
-        self.auto_frequency_var = StringVar(value=str(DEFAULT_CENTER_FREQ_HZ))
-        self.auto_sample_rate_var = StringVar(value=str(DEFAULT_SAMPLE_RATE_HZ))
-        self.auto_gain_var = StringVar(value="auto")
-        self.auto_duration_var = StringVar(value="60")
-        self.auto_norad_id_var = StringVar(value="")
-        self.auto_recording_dir_var = StringVar(value=str(PROJECT_ROOT / "iq-recorder" / "recordings"))
-        self.auto_db_path_var = StringVar(value=str(DB_PATH))
-        self.auto_output_dir_var = StringVar(value=str(APP_DIR / "data" / "results"))
-        self.auto_simulate_var = BooleanVar(value=True)
-        self.auto_save_image_var = BooleanVar(value=False)
-        self.auto_no_ml_var = BooleanVar(value=False)
-
-        # Train Model / Run Detection / Open Results Folder
-        self.dataset_var = StringVar(value=str(APP_DIR / "data" / "training" / "synthetic_example.csv"))
-        self.model_var = StringVar(value=str(APP_DIR / "models" / "random_forest.joblib"))
-        self.input_var = StringVar(value=str(APP_DIR / "data" / "raw" / "sample.npy"))
-        self.output_dir_var = StringVar(value=str(APP_DIR / "data" / "results"))
-        self.db_path_var = StringVar(value=str(DB_PATH))
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
         self.sample_rate_var = StringVar(value=str(DEFAULT_SAMPLE_RATE_HZ))
         self.center_freq_var = StringVar(value=str(DEFAULT_CENTER_FREQ_HZ))
         self.nperseg_var = StringVar(value=str(DEFAULT_NPERSEG))
         self.noverlap_var = StringVar(value=str(DEFAULT_NOVERLAP))
-<<<<<<< HEAD
         self.binary_dtype_var = StringVar(value="auto")
         self.viz_input_var = StringVar(value="")
         self.viz_format_var = StringVar(value="auto")
@@ -109,9 +64,6 @@ class SDRDopplerGUI:
         self.history_capture_var = StringVar(value="")
         self.passes_config_var = StringVar(value=str(PROJECT_ROOT / "capture_config.example.json"))
         self.passes_hours_var = StringVar(value="24")
-=======
-        self.binary_dtype_var = StringVar(value="complex64")
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
         self.snr_threshold_db_var = StringVar(value=str(DEFAULT_SNR_THRESHOLD_DB))
         self.min_valid_ratio_var = StringVar(value=str(DEFAULT_MIN_VALID_RATIO))
         self.min_drift_hz_var = StringVar(value=str(DEFAULT_MIN_DRIFT_HZ))
@@ -123,18 +75,12 @@ class SDRDopplerGUI:
         self.allow_synthetic_var = BooleanVar(value=True)
         self.save_image_var = BooleanVar(value=False)
         self.no_ml_var = BooleanVar(value=False)
-<<<<<<< HEAD
         self.preview_image_path = None
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
         self.image_series = []
         self.current_image_index = 0
 
         self._build_ui()
-<<<<<<< HEAD
         self._refresh_function_config()
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
         self._refresh_result_panel()
         self._refresh_image_preview()
 
@@ -149,12 +95,8 @@ class SDRDopplerGUI:
         self.function_tabs.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 8))
 
         self.func_panels = {}
-<<<<<<< HEAD
         for name in ["Visualise IQ", "Run Detection", "Satellite Passes", "Capture History", "Train Model",
                      "Convert SigMF (.sigmf-data/.sigmf-meta)", "Open Results Folder"]:
-=======
-        for name in ["Auto Capture", "Train Model", "Run Detection", "Open Results Folder"]:
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
             frame = ttk.Frame(self.function_tabs, padding=(16, 10, 16, 10))
             frame.grid_columnconfigure(1, weight=1)
             self.function_tabs.add(frame, text=name)
@@ -201,7 +143,6 @@ class SDRDopplerGUI:
         self.progress_bar.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
 
     def _populate_function_tab(self, parent, selected):
-<<<<<<< HEAD
         if selected == "Visualise IQ":
             self._add_field_row_to_parent(parent, "IQ recording", self.viz_input_var, browse_func=self._choose_viz_input)
             fmt_row = ttk.Frame(parent)
@@ -244,28 +185,6 @@ class SDRDopplerGUI:
                 "and the station status log. Enter a capture id to see its full record and satellite position history.",
             )
             ttk.Button(parent, text="Show History", command=lambda: self._run_selected_function("Capture History")).pack(anchor="w", pady=(12, 0))
-=======
-        if selected == "Auto Capture":
-            self._add_field_row_to_parent(parent, "Satellite/target name", self.auto_satellite_var)
-            self._add_field_row_to_parent(parent, "Frequency (Hz)", self.auto_frequency_var)
-            self._add_field_row_to_parent(parent, "Sample rate (Hz)", self.auto_sample_rate_var)
-            self._add_field_row_to_parent(parent, "Gain (dB or 'auto')", self.auto_gain_var)
-            self._add_field_row_to_parent(parent, "Duration (s)", self.auto_duration_var)
-            self._add_field_row_to_parent(parent, "NORAD ID (optional)", self.auto_norad_id_var)
-            self._add_field_row_to_parent(parent, "Recording folder", self.auto_recording_dir_var, browse_func=self._choose_auto_recording_dir)
-            self._add_field_row_to_parent(parent, "Database path", self.auto_db_path_var, browse_func=self._choose_auto_db_path)
-            self._add_field_row_to_parent(parent, "Detection output folder", self.auto_output_dir_var, browse_func=self._choose_auto_output_dir)
-            self._add_checkbox_row_to_parent(parent, "Simulate (no hardware required)", self.auto_simulate_var)
-            self._add_checkbox_row_to_parent(parent, "Save spectrogram image", self.auto_save_image_var)
-            self._add_checkbox_row_to_parent(parent, "Skip ML detection", self.auto_no_ml_var)
-            self._add_info_label_to_parent(
-                parent,
-                "Runs pipeline.py: records one pass with the RTL-SDR recorder, then feeds it straight "
-                "through detection into the database - the auto-capture connector. Leave Simulate checked "
-                "to try it without hardware attached.",
-            )
-            ttk.Button(parent, text="Run Auto Capture", command=lambda: self._run_selected_function("Auto Capture")).pack(anchor="w", pady=(12, 0))
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
         elif selected == "Train Model":
             self._add_field_row_to_parent(parent, "Dataset CSV", self.dataset_var, browse_func=self._choose_dataset)
             self._add_field_row_to_parent(parent, "Model output", self.model_var, browse_func=self._choose_model_path)
@@ -281,11 +200,7 @@ class SDRDopplerGUI:
             self._add_field_row_to_parent(parent, "Center freq (Hz)", self.center_freq_var)
             self._add_field_row_to_parent(parent, "nperseg", self.nperseg_var)
             self._add_field_row_to_parent(parent, "noverlap", self.noverlap_var)
-<<<<<<< HEAD
             self._add_field_row_to_parent(parent, "IQ format (auto/cu8/ci16/complex64/wav)", self.binary_dtype_var)
-=======
-            self._add_field_row_to_parent(parent, "Binary dtype", self.binary_dtype_var)
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
             self._add_field_row_to_parent(parent, "SNR threshold (dB)", self.snr_threshold_db_var)
             self._add_field_row_to_parent(parent, "Min valid ratio", self.min_valid_ratio_var)
             self._add_field_row_to_parent(parent, "Min drift (Hz)", self.min_drift_hz_var)
@@ -296,15 +211,12 @@ class SDRDopplerGUI:
             self._add_checkbox_row_to_parent(parent, "Skip ML detection", self.no_ml_var)
             self._add_info_label_to_parent(parent, "These values match the CLI defaults in the parser and can be tuned for each run.")
             ttk.Button(parent, text="Run Detection", command=lambda: self._run_selected_function("Run Detection")).pack(anchor="w", pady=(12, 0))
-<<<<<<< HEAD
         elif selected == "Convert SigMF (.sigmf-data/.sigmf-meta)":
             self._add_field_row_to_parent(parent, "SigMF metadata", self.meta_var, browse_func=self._choose_meta_file)
             self._add_field_row_to_parent(parent, "SigMF data", self.sigmf_data_var, browse_func=self._choose_sigmf_data_file)
             self._add_field_row_to_parent(parent, "Converted output", self.convert_output_var, browse_func=self._choose_convert_out_file)
             self._add_info_label_to_parent(parent, "Converts SigMF ci16_le IQ pairs into a project-ready .npy complex64 array.")
             ttk.Button(parent, text="Convert SigMF", command=lambda: self._run_selected_function("Convert SigMF (.sigmf-data/.sigmf-meta)")).pack(anchor="w", pady=(12, 0))
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
         elif selected == "Open Results Folder":
             self._add_field_row_to_parent(parent, "Results folder", self.output_dir_var, browse_func=self._choose_output_dir)
             self._add_info_label_to_parent(parent, "Opens the output folder containing summary JSON, images, and model artifacts.")
@@ -328,7 +240,6 @@ class SDRDopplerGUI:
         label = ttk.Label(parent, text=text, foreground="#325d8c", wraplength=800, justify="left")
         label.pack(anchor="w", pady=(12, 4))
 
-<<<<<<< HEAD
     def _clear_panel(self):
         for child in self.config_panel.winfo_children():
             child.destroy()
@@ -353,27 +264,6 @@ class SDRDopplerGUI:
     def _add_info_label(self, text):
         label = ttk.Label(self.config_panel, text=text, foreground="#325d8c", wraplength=800, justify="left")
         label.pack(anchor="w", pady=(12, 4))
-=======
-    def _choose_auto_recording_dir(self):
-        folder = filedialog.askdirectory(title="Choose recording folder", initialdir=self.auto_recording_dir_var.get())
-        if folder:
-            self.auto_recording_dir_var.set(folder)
-
-    def _choose_auto_db_path(self):
-        file = filedialog.asksaveasfilename(
-            title="Choose SQLite database path",
-            defaultextension=".sqlite3",
-            filetypes=[("SQLite database", "*.sqlite3"), ("All files", "*.*")],
-            initialdir=str(Path(self.auto_db_path_var.get()).parent),
-        )
-        if file:
-            self.auto_db_path_var.set(file)
-
-    def _choose_auto_output_dir(self):
-        folder = filedialog.askdirectory(title="Choose detection output folder", initialdir=self.auto_output_dir_var.get())
-        if folder:
-            self.auto_output_dir_var.set(folder)
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
 
     def _choose_dataset(self):
         file = filedialog.askopenfilename(
@@ -418,7 +308,6 @@ class SDRDopplerGUI:
         if file:
             self.db_path_var.set(file)
 
-<<<<<<< HEAD
     def _choose_meta_file(self):
         file = filedialog.askopenfilename(
             title="Choose .sigmf-meta file",
@@ -532,68 +421,6 @@ class SDRDopplerGUI:
             if var.get().strip():
                 cmd += [flag, var.get().strip()]
         self._run_command(cmd, title="Drawing waterfall")
-=======
-    def _run_selected_function(self, selected):
-        if selected == "Open Results Folder":
-            self._open_results_folder()
-        elif selected == "Train Model":
-            self._train_model()
-        elif selected == "Run Detection":
-            self._run_detection()
-        elif selected == "Auto Capture":
-            self._run_auto_capture()
-
-    def _run_auto_capture(self):
-        try:
-            frequency = float(self.auto_frequency_var.get())
-            sample_rate = float(self.auto_sample_rate_var.get())
-            duration = float(self.auto_duration_var.get())
-        except ValueError:
-            messagebox.showerror("Invalid input", "Frequency, sample rate, and duration must be numbers.")
-            return
-
-        satellite = self.auto_satellite_var.get().strip()
-        if not satellite:
-            messagebox.showerror("Missing satellite name", "Enter a satellite/target name.")
-            return
-
-        recording_dir = Path(self.auto_recording_dir_var.get()).expanduser()
-        recording_dir.mkdir(parents=True, exist_ok=True)
-        db_path = Path(self.auto_db_path_var.get()).expanduser()
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        output_dir = Path(self.auto_output_dir_var.get()).expanduser()
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        cmd = [
-            sys.executable,
-            str(PIPELINE_SCRIPT),
-            "--satellite", satellite,
-            "--frequency", str(frequency),
-            "--sample-rate", str(sample_rate),
-            "--duration", str(duration),
-            "--gain", self.auto_gain_var.get().strip() or "auto",
-            "--output-dir", str(recording_dir),
-            "--db", str(db_path),
-            "--detection-output-dir", str(output_dir),
-        ]
-        norad_id = self.auto_norad_id_var.get().strip()
-        if norad_id:
-            cmd.extend(["--norad-id", norad_id])
-        if self.auto_simulate_var.get():
-            cmd.append("--simulate")
-        if self.auto_save_image_var.get():
-            cmd.append("--save-image")
-        if self.auto_no_ml_var.get():
-            cmd.append("--no-ml")
-
-        # Keep the Run Detection / Open Results Folder tabs pointed at the
-        # same output/db this run just used, so the Results and Image
-        # Preview panels below pick it up.
-        self.output_dir_var.set(str(output_dir))
-        self.db_path_var.set(str(db_path))
-
-        self._run_command(cmd, title="Auto capture", cwd=PROJECT_ROOT)
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
 
     def _train_model(self):
         dataset = Path(self.dataset_var.get()).expanduser()
@@ -625,11 +452,7 @@ class SDRDopplerGUI:
         center_freq = self.center_freq_var.get().strip() or str(DEFAULT_CENTER_FREQ_HZ)
         nperseg = self.nperseg_var.get().strip() or str(DEFAULT_NPERSEG)
         noverlap = self.noverlap_var.get().strip() or str(DEFAULT_NOVERLAP)
-<<<<<<< HEAD
         binary_dtype = self.binary_dtype_var.get().strip() or "auto"
-=======
-        binary_dtype = self.binary_dtype_var.get().strip() or "complex64"
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
         snr_threshold = self.snr_threshold_db_var.get().strip() or str(DEFAULT_SNR_THRESHOLD_DB)
         min_valid_ratio = self.min_valid_ratio_var.get().strip() or str(DEFAULT_MIN_VALID_RATIO)
         min_drift_hz = self.min_drift_hz_var.get().strip() or str(DEFAULT_MIN_DRIFT_HZ)
@@ -640,7 +463,6 @@ class SDRDopplerGUI:
         cmd = [
             sys.executable,
             "src/main.py",
-<<<<<<< HEAD
             "--input",
             str(capture),
             "--output",
@@ -667,21 +489,6 @@ class SDRDopplerGUI:
             max_smoothness_hz,
             "--ml-model",
             str(model_path),
-=======
-            "--input", str(capture),
-            "--output", str(output_dir),
-            "--db", str(db_path),
-            "--sample-rate", sample_rate,
-            "--center-freq", center_freq,
-            "--nperseg", nperseg,
-            "--noverlap", noverlap,
-            "--binary-dtype", binary_dtype,
-            "--snr-threshold-db", snr_threshold,
-            "--min-valid-ratio", min_valid_ratio,
-            "--min-drift-hz", min_drift_hz,
-            "--max-smoothness-hz", max_smoothness_hz,
-            "--ml-model", str(model_path),
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
         ]
         if self.save_image_var.get():
             cmd.append("--save-image")
@@ -696,7 +503,6 @@ class SDRDopplerGUI:
         if self.no_ml_var.get():
             cmd.append("--no-ml")
 
-<<<<<<< HEAD
         self._run_command(cmd, title="Running detection")
 
     def _convert_sigmf(self):
@@ -722,9 +528,6 @@ class SDRDopplerGUI:
             str(output_path),
         ]
         self._run_command(cmd, title="Converting SigMF")
-=======
-        self._run_command(cmd, title="Running detection", cwd=APP_DIR)
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
 
     def _open_results_folder(self):
         try:
@@ -741,7 +544,6 @@ class SDRDopplerGUI:
         except Exception as exc:
             messagebox.showerror("Folder error", f"Unable to open results folder: {exc}")
 
-<<<<<<< HEAD
     def _open_latest_image(self):
         images = sorted(Path(self.output_dir_var.get()).expanduser().glob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
         if not images:
@@ -759,9 +561,6 @@ class SDRDopplerGUI:
             messagebox.showerror("Image error", f"Unable to open image: {exc}")
 
     def _run_command(self, cmd, title: str, cwd=None, open_results: bool = True):
-=======
-    def _run_command(self, cmd, title: str, cwd: Path = None):
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
         self.status_var.set(f"{title} running...")
         self.progress_text_var.set(f"Working: {title}")
         self.progress_bar.configure(mode="indeterminate")
@@ -777,18 +576,13 @@ class SDRDopplerGUI:
                     self.status_var.set(f"{title} complete")
                 else:
                     self.status_var.set(f"{title} failed")
-<<<<<<< HEAD
                 self.root.after(0, lambda: self._show_command_output(combined, result.returncode, open_results))
-=======
-                self.root.after(0, lambda: self._show_command_output(combined, result.returncode))
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
             except Exception as exc:
                 self.root.after(0, lambda: self._show_command_output(f"Error: {exc}", 1))
                 self.root.after(0, lambda: self.status_var.set(f"{title} failed"))
 
         threading.Thread(target=worker, daemon=True).start()
 
-<<<<<<< HEAD
     def _set_progress(self, label: str, active: bool = True):
         self.progress_text_var.set(label)
         if active:
@@ -799,9 +593,6 @@ class SDRDopplerGUI:
             self.progress_bar.grid()
 
     def _show_command_output(self, output: str, return_code: int, open_results: bool = True):
-=======
-    def _show_command_output(self, output: str, return_code: int):
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
         self.progress_bar.stop()
         self.progress_bar.configure(mode="indeterminate")
         self.progress_text_var.set("Complete")
@@ -814,11 +605,7 @@ class SDRDopplerGUI:
             self.results_box.insert("end", "The command completed without any text output.")
         self.results_box.config(state="disabled")
 
-<<<<<<< HEAD
         if return_code == 0 and open_results:
-=======
-        if return_code == 0:
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
             self._refresh_result_panel()
             self._refresh_image_preview()
             self._open_results_window()
@@ -869,11 +656,7 @@ class SDRDopplerGUI:
         result_box.config(state="disabled")
 
         png_files = sorted(output_dir.rglob("*.png"), key=lambda p: p.stat().st_mtime)
-<<<<<<< HEAD
         if self.save_image_var.get() or png_files:
-=======
-        if png_files:
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
             image_tab = ttk.Frame(notebook)
             image_tab.grid_columnconfigure(0, weight=1)
             image_tab.grid_rowconfigure(0, weight=1)
@@ -896,14 +679,10 @@ class SDRDopplerGUI:
             image_label = ttk.Label(image_canvas, text="Loading image preview...", anchor="center")
             image_label.grid(row=0, column=0, sticky="nsew")
 
-<<<<<<< HEAD
             if png_files:
                 self._show_sequence_image(png_files, 0, image_label, counter_var, prev_button, next_button)
             else:
                 image_label.configure(text="No PNG image was produced for this session.")
-=======
-            self._show_sequence_image(png_files, 0, image_label, counter_var, prev_button, next_button)
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
 
         window.transient(self.root)
         window.grab_set()
@@ -953,7 +732,6 @@ class SDRDopplerGUI:
         image_label.image = None
 
     def _show_previous_image(self):
-<<<<<<< HEAD
         png_files = self.image_series
         if not png_files:
             return
@@ -964,30 +742,15 @@ class SDRDopplerGUI:
         if not png_files:
             return
         self._show_sequence_image(png_files, 1, self.image_label, self.image_counter_var, self.image_prev_button, self.image_next_button)
-=======
-        if not self.image_series:
-            return
-        self._show_sequence_image(self.image_series, -1, self.image_label, self.image_counter_var, self.image_prev_button, self.image_next_button)
-
-    def _show_next_image(self):
-        if not self.image_series:
-            return
-        self._show_sequence_image(self.image_series, 1, self.image_label, self.image_counter_var, self.image_prev_button, self.image_next_button)
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
 
     def _latest_png_files(self):
         base_dir = Path(self.output_dir_var.get()).expanduser()
         if not base_dir.exists():
             return []
-<<<<<<< HEAD
 
         session_dir = self._latest_result_folder()
         png_files = sorted(session_dir.rglob("*.png"), key=lambda p: p.stat().st_mtime)
         return png_files
-=======
-        session_dir = self._latest_result_folder()
-        return sorted(session_dir.rglob("*.png"), key=lambda p: p.stat().st_mtime)
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
 
     def _refresh_result_panel(self):
         output_dir = self._latest_result_folder()
@@ -1016,11 +779,7 @@ class SDRDopplerGUI:
                     payload = None
 
         if payload is None:
-<<<<<<< HEAD
             content = "No result file found yet.\nTrain a model or run a detection pass to generate results."
-=======
-            content = "No result file found yet.\nRun Auto Capture, Run Detection, or Train Model to generate results."
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
         elif "evaluation_metrics" in payload or "feature_importance" in payload:
             content = format_training_summary(payload)
         else:
@@ -1041,15 +800,11 @@ class SDRDopplerGUI:
             self.image_prev_button.configure(state="disabled")
             self.image_next_button.configure(state="disabled")
             self.image_label.configure(text="No PNG preview available yet.")
-<<<<<<< HEAD
             self.preview_image_path = None
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
             self.image_label.image = None
             return
 
         self.current_image_index = max(0, min(self.current_image_index, len(self.image_series) - 1))
-<<<<<<< HEAD
         self.preview_image_path = str(self.image_series[self.current_image_index])
         self._show_sequence_image(
             self.image_series,
@@ -1058,20 +813,12 @@ class SDRDopplerGUI:
             self.image_counter_var,
             self.image_prev_button,
             self.image_next_button,
-=======
-        self._show_sequence_image(
-            self.image_series, 0, self.image_label, self.image_counter_var, self.image_prev_button, self.image_next_button
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
         )
 
 
 def main():
     root = Tk()
-<<<<<<< HEAD
     app = SDRDopplerGUI(root)
-=======
-    SDRDopplerGUI(root)
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     root.mainloop()
 
 

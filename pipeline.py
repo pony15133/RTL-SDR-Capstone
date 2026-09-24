@@ -45,7 +45,6 @@ from rtl_recorder.metadata import RecordingResult  # noqa: E402
 from rtl_recorder.recorder import RTLSDRRecorder  # noqa: E402
 
 from config import DB_PATH, DEFAULT_ML_MODEL_PATH  # noqa: E402
-<<<<<<< HEAD
 from database import init_db, insert_result, update_result  # noqa: E402
 from detect import detect_candidate  # noqa: E402
 from detection.ml_detector import run_ml_detection  # noqa: E402
@@ -60,16 +59,6 @@ from spectrogram import iq_to_spectrogram, save_spectrogram_image  # noqa: E402
 from storage import safe_stem, save_summary, utc_timestamp  # noqa: E402
 
 #: (kept for reference) rtl_sdr's native raw output: interleaved unsigned 8-bit I/Q samples,
-=======
-from database import init_db, insert_result  # noqa: E402
-from detect import detect_candidate  # noqa: E402
-from detection.ml_detector import run_ml_detection  # noqa: E402
-from features.extractor import extract_features  # noqa: E402
-from spectrogram import iq_to_spectrogram, save_spectrogram_image  # noqa: E402
-from storage import ensure_session_output_dir, safe_stem, save_summary, utc_timestamp  # noqa: E402
-
-#: rtl_sdr's native raw output: interleaved unsigned 8-bit I/Q samples,
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
 #: offset-binary around 127.5 (see rtl_recorder README / rtl_sdr(1)). This
 #: is what the recorder actually writes in real (non-simulated) mode.
 RAW_IQ_DTYPE = "uint8"
@@ -84,7 +73,6 @@ class PipelineResult:
     detected: Optional[bool] = None
     confidence_score: Optional[float] = None
     ml_status: Optional[str] = None
-<<<<<<< HEAD
     ml_confidence_score: Optional[float] = None
     summary_path: Optional[str] = None
     spectrogram_image: Optional[str] = None
@@ -189,33 +177,6 @@ def log_failed_recording(result: RecordingResult, *, db_path: Optional[Path] = N
         row["satellite_name"] = satellite_name
     init_db(db_path)
     return insert_result(db_path, row)
-=======
-    summary_path: Optional[str] = None
-    spectrogram_image: Optional[str] = None
-    skipped_reason: Optional[str] = None
-
-    @property
-    def success(self) -> bool:
-        return self.recording.success and self.result_id is not None
-
-
-def load_raw_iq_as_complex(iq_path: Path) -> "np.ndarray":  # noqa: F821 - numpy imported lazily below
-    """Load an rtl_sdr raw ``.iq`` capture as a complex64 sample array.
-
-    rtl_sdr writes interleaved uint8 I/Q pairs centered on 127.5, not the
-    complex64 float format ``sdr-doppler-prototype/src/load_data.py``
-    otherwise assumes for ``.iq``/``.bin`` files - so the conversion is
-    done explicitly here rather than routing through ``load_input``.
-    """
-    import numpy as np
-
-    raw = np.fromfile(iq_path, dtype=RAW_IQ_DTYPE)
-    if raw.size % 2 != 0:
-        raw = raw[:-1]  # drop a trailing unpaired byte from a truncated capture
-    raw = raw.astype(np.float32)
-    iq = ((raw[0::2] - 127.5) + 1j * (raw[1::2] - 127.5)) / 127.5
-    return iq.astype(np.complex64)
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
 
 
 def process_recording(
@@ -234,7 +195,6 @@ def process_recording(
     ml_model_path: Optional[Path] = None,
     no_ml: bool = False,
     save_image: bool = False,
-<<<<<<< HEAD
     retention_policy: str = DEFAULT_POLICY,
     keep_threshold: float = DEFAULT_KEEP_THRESHOLD,
     archive_dir: Optional[Path] = None,
@@ -260,25 +220,13 @@ def process_recording(
     from the signal); ``doppler`` is the predicted Doppler curve for the
     recording. With them, a Doppler-corrected standard waterfall centred on
     the downlink is built and scored by the SatNOGS-trained waterfall model.
-=======
-) -> PipelineResult:
-    """Run detection on a completed recording and store the result in the DB.
-
-    Mirrors sdr-doppler-prototype/src/main.py's pipeline, but takes a
-    ``RecordingResult`` from ``rtl_recorder`` instead of a CLI-supplied
-    ``--input`` path. A recording that didn't succeed (device busy,
-    cancelled, failed) is skipped - there's nothing to detect.
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     """
     pr = PipelineResult(recording=result)
     if not result.success or not result.output_file:
         pr.skipped_reason = f"recording did not succeed (status={result.status.value}); nothing to detect"
-<<<<<<< HEAD
         if log_failures:
             pr.result_id = log_failed_recording(result, db_path=db_path, frequency_hz=frequency_hz,
                                                 sample_rate_hz=sample_rate_hz)
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
         return pr
 
     db_path = Path(db_path) if db_path else DB_PATH
@@ -287,13 +235,9 @@ def process_recording(
     ml_model_path = Path(ml_model_path) if ml_model_path else DEFAULT_ML_MODEL_PATH
     input_path = Path(result.output_file)
 
-<<<<<<< HEAD
     limit = None if max_detection_seconds is None else int(max_detection_seconds * sample_rate_hz)
     with IQReader(input_path, "cu8") as reader:  # closed before retention may move/delete the file
         iq_samples = reader.read_all(limit)
-=======
-    iq_samples = load_raw_iq_as_complex(input_path)
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     spec = iq_to_spectrogram(
         iq_samples,
         sample_rate_hz=sample_rate_hz,
@@ -313,18 +257,10 @@ def process_recording(
     ml_detection = None if no_ml else run_ml_detection(ml_model_path, features)
 
     timestamp = utc_timestamp()
-<<<<<<< HEAD
-=======
-    # Groups this run's summary/image under their own timestamped folder,
-    # same as sdr-doppler-prototype/src/main.py - what the GUI's
-    # results/image-preview panels browse as "today's session".
-    session_dir = ensure_session_output_dir(output_dir)
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     image_path = None
     if save_image:
         image_path = save_spectrogram_image(
             spec,
-<<<<<<< HEAD
             output_dir / f"{safe_stem(input_path)}_{timestamp.replace(':', '')}_spectrogram.png",
         )
     summary_path = save_summary(output_dir, input_path, timestamp, detection, ml_detection)
@@ -351,11 +287,6 @@ def process_recording(
     decision = retention_decide(ml_detection=preferred, rule_detection=detection, threshold=keep_threshold)
     if preferred is wf_detection and wf_detection is not None:
         decision.source = "waterfall-ml"
-=======
-            session_dir / f"{safe_stem(input_path)}_{timestamp.replace(':', '')}_spectrogram.png",
-        )
-    summary_path = save_summary(session_dir, input_path, timestamp, detection, ml_detection)
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
 
     row = {
         "input_file": str(input_path),
@@ -373,7 +304,6 @@ def process_recording(
         "ml_detection_result": None if ml_detection is None or ml_detection.ml_detection_result is None else int(ml_detection.ml_detection_result),
         "ml_confidence_score": ml_detection.ml_confidence_score if ml_detection else None,
         "model_version": ml_detection.model_version if ml_detection else None,
-<<<<<<< HEAD
         "processing_status": "DETECTED",
         "target_frequency_hz": int(target),
         "doppler_corrected": int(doppler is not None),
@@ -386,13 +316,10 @@ def process_recording(
         "decision_source": decision.source,
         "decision_score": decision.score,
         **recording_metadata_columns(result, frequency_hz=frequency_hz, sample_rate_hz=sample_rate_hz),
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     }
     init_db(db_path)
     result_id = insert_result(db_path, row)
 
-<<<<<<< HEAD
     # Only touch the file after its row is safely in the database.
     outcome = retention_apply(decision, input_path, policy=retention_policy, archive_dir=archive_dir)
     update_result(db_path, result_id, {
@@ -401,13 +328,10 @@ def process_recording(
         "raw_iq_file_path": outcome.final_path,
     })
 
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     pr.result_id = result_id
     pr.detected = detection.detected
     pr.confidence_score = detection.confidence_score
     pr.ml_status = ml_detection.status if ml_detection else "SKIPPED"
-<<<<<<< HEAD
     pr.ml_confidence_score = ml_detection.ml_confidence_score if ml_detection else None
     pr.summary_path = str(summary_path)
     pr.spectrogram_image = str(image_path) if image_path else None
@@ -417,10 +341,6 @@ def process_recording(
     pr.waterfall_image = str(wf_image) if wf_image else None
     pr.doppler_corrected = doppler is not None
     pr.final_iq_path = outcome.final_path
-=======
-    pr.summary_path = str(summary_path)
-    pr.spectrogram_image = str(image_path) if image_path else None
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     return pr
 
 
@@ -438,7 +358,6 @@ def capture_and_detect(
     detection_output_dir: Optional[Path] = None,
     no_ml: bool = False,
     save_image: bool = False,
-<<<<<<< HEAD
     ml_model_path: Optional[Path] = None,
     retention_policy: str = DEFAULT_POLICY,
     keep_threshold: float = DEFAULT_KEEP_THRESHOLD,
@@ -448,14 +367,6 @@ def capture_and_detect(
 
     ``recorder_config`` lets a caller pass e.g. ``RecorderConfig(simulate=True)``
     for testing without hardware.
-=======
-) -> PipelineResult:
-    """Record one pass, then run it through detection and store the result.
-
-    This is the "auto capture" entry point: capture -> detect -> database,
-    in one call. ``recorder_config`` lets a caller pass e.g.
-    ``RecorderConfig(simulate=True)`` for testing without hardware.
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     """
     recorder = RTLSDRRecorder(recorder_config or RecorderConfig())
     result = recorder.record(
@@ -475,13 +386,10 @@ def capture_and_detect(
         output_dir=detection_output_dir,
         no_ml=no_ml,
         save_image=save_image,
-<<<<<<< HEAD
         ml_model_path=ml_model_path,
         retention_policy=retention_policy,
         keep_threshold=keep_threshold,
         log_failures=log_failures,
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     )
 
 
@@ -492,10 +400,7 @@ def _build_parser():
         description="Record IQ samples with iq-recorder and run the result through the "
         "sdr-doppler-prototype detection pipeline into its SQLite database."
     )
-<<<<<<< HEAD
     parser.add_argument("--doctor", action="store_true", help="Only check this computer's RTL-SDR setup (tools, device, packages) and exit")
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     parser.add_argument("--satellite", required=True, help="Satellite/target name")
     parser.add_argument("--frequency", required=True, type=float, help="Center frequency in Hz")
     parser.add_argument("--sample-rate", required=True, type=float, help="Sample rate in Hz")
@@ -508,26 +413,20 @@ def _build_parser():
     parser.add_argument("--simulate", action="store_true", help="Simulate the recording (no hardware required)")
     parser.add_argument("--no-ml", action="store_true", help="Skip ML detection")
     parser.add_argument("--save-image", action="store_true", help="Save a PNG spectrogram image")
-<<<<<<< HEAD
     parser.add_argument("--ml-model", type=Path, default=None, help="Trained model (.joblib); default models/random_forest.joblib")
     parser.add_argument("--retention", choices=POLICIES, default=DEFAULT_POLICY,
                         help="What to do with the IQ file of a recording judged 'no satellite' (default keep-all)")
     parser.add_argument("--keep-threshold", type=float, default=DEFAULT_KEEP_THRESHOLD,
                         help="ML confidence needed to count as 'satellite' for retention (default 0.5)")
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     return parser
 
 
 def main(argv=None) -> int:
-<<<<<<< HEAD
     argv = sys.argv[1:] if argv is None else list(argv)
     if "--doctor" in argv:
         from rtl_recorder.doctor import main as doctor_main
 
         return doctor_main([a for a in argv if a != "--doctor"])
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     args = _build_parser().parse_args(argv)
     pr = capture_and_detect(
         satellite_name=args.satellite,
@@ -542,12 +441,9 @@ def main(argv=None) -> int:
         detection_output_dir=args.detection_output_dir,
         no_ml=args.no_ml,
         save_image=args.save_image,
-<<<<<<< HEAD
         ml_model_path=args.ml_model,
         retention_policy=args.retention,
         keep_threshold=args.keep_threshold,
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     )
 
     print(f"recording_status={pr.recording.status.value}")
@@ -560,12 +456,9 @@ def main(argv=None) -> int:
     print(f"detected={pr.detected}")
     print(f"confidence_score={pr.confidence_score:.3f}")
     print(f"ml_status={pr.ml_status}")
-<<<<<<< HEAD
     if pr.ml_confidence_score is not None:
         print(f"ml_confidence={pr.ml_confidence_score:.3f}")
     print(f"iq_retention={pr.retention_action} -> {pr.final_iq_path}")
-=======
->>>>>>> 482f8559d715eca22d15970253af36deb909de15
     print(f"summary={pr.summary_path}")
     if pr.spectrogram_image:
         print(f"spectrogram_image={pr.spectrogram_image}")
