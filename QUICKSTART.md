@@ -8,6 +8,7 @@ Use `.bat` on Windows and `.sh` on macOS/Linux; everything else is identical.
 - Python 3.10 or newer ([python.org](https://www.python.org/downloads/); on Windows tick **"Add python.exe to PATH"**)
 - The RTL-SDR tools:
   - **Windows:** download the release zip from <https://ftp.osmocom.org/binaries/windows/rtl-sdr/>, unzip it (e.g. to `C:\rtl-sdr`), and install the **WinUSB** driver for the dongle with [Zadig](https://zadig.akeo.ie/) (Options → List all devices → "Bulk-In, Interface (Interface 0)" → WinUSB → Replace Driver)
+    - **RTL-SDR Blog V4** (the silver dongle labelled V4, R828D tuner): use the RTL-SDR Blog driver release (<https://github.com/rtlsdrblog/rtl-sdr-blog/releases>) instead of the osmocom zip. The V4 needs it to tune correctly. `rtl_test` prints the tuner name (R820T = V3, R828D = V4)
   - **macOS:** `brew install librtlsdr`
   - **Linux:** `sudo apt install rtl-sdr`
 - An antenna. A V-dipole (~53 cm per arm, 120° apart, horizontal) is ideal for METEOR at 137.9 MHz.
