@@ -9,7 +9,8 @@ cd /d "%~dp0"
 set "VPY=.venv\Scripts\python.exe"
 if not exist "%VPY%" ( echo Run setup.bat first. & pause & exit /b 1 )
 if not exist logs mkdir logs
-for /f %%i in ('"%VPY%" -c "import datetime;print(datetime.datetime.now().strftime('%%Y%%m%%d_%%H%%M'))"') do set "STAMP=%%i"
+for /f "delims=" %%i in ('call "%VPY%" -c "import datetime;print(datetime.datetime.now().strftime('%%Y%%m%%d_%%H%%M'))"') do set "STAMP=%%i"
+if not defined STAMP set "STAMP=latest"
 set "LOG=logs\overnight_%STAMP%.txt"
 echo Log: %LOG%
 set PYTHONUNBUFFERED=1
