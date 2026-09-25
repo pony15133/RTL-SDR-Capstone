@@ -12,6 +12,7 @@ macOS/Linux use the `.sh` scripts, `.venv/bin/python` instead of `.venv\Scripts\
 - [ ] RTL-SDR Blog V3 (or similar) dongle, antenna for 137 MHz (V-dipole ~53 cm per arm is ideal), USB cable
 - [ ] Laptop with internet (TLE download), Python 3.10+ ("Add python.exe to PATH" ticked), ~5 GB free disk
 - [ ] RTL-SDR tools unzipped (e.g. `C:\rtl-sdr`) and the WinUSB driver installed with Zadig - see QUICKSTART.md step 0
+  (**V4 dongle:** use the RTL-SDR Blog release, not the osmocom zip)
 - [ ] Close SDR#, SDR++ and anything else that might hold the dongle
 - [ ] **RAM check:** processing one pass peaks at about **6.7 GB** (evidence/performance/). On an
       **8 GB** laptop, add `"max_detection_seconds": 60` to the `recording` section of
@@ -147,6 +148,11 @@ Results pane at the bottom is squeezed to nothing and command output is hard to 
 - [ ] Run Detection on the real `.iq` (tick Save spectrogram image): Results and Image Preview show it
 - [ ] Satellite Passes: List Upcoming Passes shows the same schedule as step 4
 - [ ] Screenshot each into `%EV%`
+
+**Do not count the IQ model's verdict as detection.** It has not been validated on RTL-SDR data. In a pre-flight run
+through the real capture code with a fake device that wrote only zero bytes, it reported "satellite" at 0.95
+confidence, while the rule detector said no. Use the waterfall picture (7b) as the judge, and record the model
+values only as observations.
 
 ## 9. Record the outcome
 
