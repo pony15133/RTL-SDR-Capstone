@@ -1,0 +1,120 @@
+review_no,satnogs_id,norad_cat_id,transmitter_mode,label,model_score,claude_suggestion,confidence,what_i_see,your_label
+1,14317536,60246,FSK AX.100 Mode 5,0,0.989,1,H,bursts in centre,1
+2,15047045,57172,SSTV,0,0.979,1,H,short bursts in centre,1
+3,14801182,57166,FSK,0,0.977,0,H,"wide horizontal bands = interference, no trace",0
+4,14836015,69015,FSK AX.100 Mode 5,0,0.976,1,H,bursts in centre,1
+5,14745605,55056,FM,0,0.974,1,H,bursts in centre,1
+6,14364645,60246,FSK AX.100 Mode 5,0,0.973,1,L,faint bursts in centre,
+7,14801195,59051,FSK,0,0.963,0,H,wide horizontal bands = interference,0
+8,14836009,69015,FSK AX.100 Mode 5,0,0.958,1,L,faint bursts in centre,
+9,14654947,98264,GFSK,0,0.957,1,H,bursts near centre,1
+10,14376703,98707,AFSK,1,0.048,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+11,14935984,35933,GMSK,1,0.049,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+12,14886942,36799,CW,1,0.051,x,?,"very noisy, maybe a faint line near bottom",
+13,14632399,68635,GMSK,0,0.948,0,H,full-width banding = interference,0
+14,14376702,41183,FM,1,0.054,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+15,14194958,33591,DSB,1,0.056,x,L,"maybe a faint line at left edge (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",
+16,14396892,60478,LoRa,1,0.06,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+17,14431207,41179,FM,1,0.062,x,H,"faint bands only (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+18,14268963,43017,DUV,1,0.064,x,H,"faint band only (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+19,15052662,41789,FSK,0,0.936,x,?,"a few faint dashes, unclear",
+20,14801194,59051,FSK,0,0.935,0,H,wide bands = interference,0
+21,14555049,98281,UNKNOWN,0,0.932,1,H,strong bursts (off centre),1
+22,15044480,57172,GMSK USP,1,0.069,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+23,14187952,48907,FSK,0,0.929,1,H,strong bursts in centre,1
+24,14420820,60246,FSK AX.100 Mode 5,0,0.928,1,H,bursts in centre,1
+25,14194871,50466,GMSK,1,0.072,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+26,14553335,66673,FSK,1,0.074,1,L,faint vertical line right of centre,
+27,14764833,35932,AFSK,1,0.075,1,L,faint diagonal lines,
+28,14396891,43770,DUV,1,0.077,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+29,14769264,50466,GMSK,1,0.078,1,L,faint S-curve,
+30,14564896,29709,FM,1,0.079,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+31,14672128,60475,LoRa,1,0.079,x,H,"full-width lines = interference (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+32,14578565,50466,GMSK,1,0.079,1,L,faint curve,
+33,15052804,39430,GMSK,1,0.08,x,?,something very faint,
+34,14390749,5485,CW,1,0.081,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+35,14639126,98457,GMSK,0,0.915,1,L,short burst near centre (plus interference line),
+36,14181036,40014,FSK,1,0.086,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+37,14645981,33498,CW,1,0.087,x,?,"noisy dots, unclear",
+38,15048911,57166,FSK,1,0.087,1,H,clear lines and bursts,1
+39,14568547,40014,FSK,1,0.088,x,H,"noise-floor step only (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+40,14639197,67683,FSK,1,0.089,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+41,14957188,69015,FSK AX.100 Mode 5,1,0.089,x,H,"banding only (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+42,14187954,39430,GMSK,1,0.092,x,H,"banding only (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+43,14621213,60237,GFSK,1,0.093,1,H,clear curve,1
+44,14892736,40014,FSK,1,0.093,x,H,"wide bands = interference (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+45,14260128,33498,CW,1,0.094,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+46,14426642,43770,DUV,1,0.094,1,H,clear diagonal line,1
+47,14631749,40042,FSK,1,0.095,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+48,14631330,40974,FSK,1,0.096,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+49,14957218,69015,FSK AX.100 Mode 5,1,0.097,x,H,"full-width lines = interference (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+50,15055894,60520,FSK,1,0.097,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+51,14634934,25397,FSK,0,0.902,1,H,curve and bursts,1
+52,14589571,67683,FSK,0,0.9,1,H,clear line,1
+53,14635355,39430,GMSK,1,0.1,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+54,14447808,50466,GMSK,1,0.1,1,L,short diagonal trace under an interference line,
+55,14627771,57172,GMSK USP,1,0.101,x,?,maybe a line at the left edge,
+56,14557387,60209,BPSK,1,0.103,1,L,faint diagonal line,
+57,14343069,40014,FSK,1,0.103,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+58,15041035,57166,FSK,0,0.896,0,H,wide bands = interference,0
+59,14184515,69015,FSK AX.100 Mode 5,1,0.105,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+60,14841944,62394,GFSK,1,0.106,1,L,"noisy, faint curve bottom right",
+61,14893802,39444,BPSK,0,0.894,1,H,short bright segment in centre,1
+62,14390750,57166,FSK,1,0.106,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+63,14670262,60526,GMSK,1,0.108,x,L,"nothing clear (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",
+64,14171225,25338,DSB,1,0.113,1,L,several faint diagonal lines,
+65,14353021,42841,FM,1,0.113,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+66,15048919,57166,FSK,1,0.113,1,H,clear lines and curves,1
+67,15050335,98914,FSK,1,0.113,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+68,14625962,46506,FSK AX.25 G3RUH,1,0.115,1,H,clear curve,1
+69,14849666,98492,GMSK,1,0.116,x,?,"grid pattern, probably interference",
+70,14928236,41185,FM,0,0.884,x,?,wide steady bar in centre - carrier or interference?,
+71,14893745,62616,MSK AX.100 Mode 5,0,0.882,1,H,clear curves,1
+72,14376518,25397,FSK,1,0.119,1,L,faint curves,
+73,15044518,59051,FSK,1,0.12,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+74,14904686,68506,GFSK,1,0.124,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+75,14764948,63217,BPSK,1,0.124,1,H,clear curve,1
+76,14841945,44530,BPSK,1,0.125,1,L,faint lines,
+77,14729541,67683,FSK,1,0.126,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+78,14917425,67683,FSK,1,0.127,1,L,faint curve at right,
+79,14194411,60237,GFSK,1,0.128,1,L,faint curve under banding,
+80,14564481,46506,FSK AX.25 G3RUH,1,0.128,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+81,14191532,66681,FSK,1,0.128,x,H,"one horizontal line only (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+82,14834448,60478,LoRa,1,0.129,x,H,"banding only (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+83,15050353,98914,FSK,1,0.13,x,?,maybe faint vertical lines,
+84,14174575,60243,GMSK,1,0.13,1,L,faint vertical line,
+85,15050383,98914,FSK,1,0.132,x,H,"one horizontal line only (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+86,14562742,62676,LoRa,1,0.133,x,?,"noisy, possible bursts at right",
+87,14446466,69015,FSK AX.100 Mode 5,1,0.133,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+88,15048829,64881,GFSK,1,0.134,1,H,clear curves,1
+89,14268844,99042,FSK,0,0.865,1,H,clear curves and bursts,1
+90,15052955,40042,FSK,1,0.136,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+91,14874642,69015,FSK AX.100 Mode 5,0,0.862,1,H,bursts and a line,1
+92,14850901,98492,GMSK,1,0.138,1,H,many clear curves,1
+93,14759844,39444,BPSK,1,0.138,1,H,clear lines,1
+94,14627112,60478,LoRa,1,0.138,x,H,"banding only (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+95,14586771,98274,GFSK,1,0.14,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+96,14387761,7530,CW,1,0.14,1,H,clear line,1
+97,15041861,69015,FSK AX.100 Mode 5,1,0.141,1,H,many curves,1
+98,15048938,59051,FSK,1,0.142,1,H,clear lines,1
+99,14425369,63235,GFSK,1,0.144,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+100,14805718,59051,FSK,0,0.854,x,?,wide fuzzy blob in centre - signal or interference?,
+101,14851512,98274,GFSK,0,0.853,1,H,bursts in centre,1
+102,14287065,57172,GMSK USP,1,0.148,x,H,"banding only (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+103,14578687,50466,GMSK,1,0.15,1,L,faint curve bottom right,
+104,14376443,6235,APT,1,0.152,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+105,15044296,99416,GFSK,1,0.152,1,H,clear curve,1
+106,14431247,62616,MSK AX.100 Mode 5,0,0.846,1,H,clear curves,1
+107,14621418,60237,GFSK,0,0.846,1,H,bursts along a diagonal,1
+108,14178960,59918,FM,1,0.154,x,?,faint short marks at left,
+109,14967539,68506,GFSK,1,0.157,1,L,faint curves under heavy banding,
+110,14683287,63217,BPSK,1,0.159,1,L,faint curve,
+111,14187953,48951,FM,0,0.841,1,H,strong bursts,1
+112,14429987,69015,FSK AX.100 Mode 5,0,0.841,1,H,clear trace,1
+113,14627967,43880,FSK,1,0.159,1,L,faint curves,
+114,14764844,39484,FM,1,0.159,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x
+115,15048830,59112,GMSK,1,0.16,1,L,line at left edge,
+116,15044514,59051,FSK,1,0.16,1,H,clear lines,1
+117,14269120,44353,CW,0,0.839,1,H,steady line in centre,1
+118,14590352,57166,LRPT,1,0.163,1,L,faint lines,
+119,14886666,98671,FSK AX.100 Mode 5,1,0.163,x,H,"nothing visible (SatNOGS says signal: may be too faint at 128x128 - drop, do not flip)",x

@@ -100,7 +100,7 @@ A check of every feature, in order. Each test gives the command, what you should
 | H11 | `python scripts\review_labels.py` | `data\satnogs\review\sheet_01.png` + `label_review.csv`; the sheet shows waterfalls where the model and the label disagree | ☐ |
 | H12 | Put `1`/`0`/`x` in a few `your_label` cells, then `python scripts\review_labels.py --apply data\satnogs\review\label_review.csv` | "Applied: N relabelled, M confirmed, K dropped"; those rows have `label_source` = manual | ☐ |
 | H13 | After E1 (demo): `python scripts\label_station_captures.py --include-simulated --list` | Lists the demo captures with their waterfall images (`*_waterfall.npy` exists next to each PNG) | ☐ |
-| H14 | After a real pass (L): `python scripts\label_station_captures.py`, answer 1 or 0 | Image opens; row added to `data\training\station_waterfall_features.csv`; next `setup` says "+ your own labelled passes" | ☐ |
+| H14 | After a real pass (L): `python scripts\label_station_captures.py`, answer 1 or 0 | Image opens; a row added to both `data\training\station_waterfall_features.csv` and `station_iq_features.csv`; next `setup` says "+ your own labelled passes" in steps 2 and 3 | ☐ |
 
 ## I. Database and history
 

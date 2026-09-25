@@ -321,3 +321,16 @@ def test_visualize_doppler_view_on_simulated_pass(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert (tmp_path / "ISS_rec_doppler_corrected.png").exists()
     assert curve.max_abs_hz > 3000  # a real pass-sized Doppler swing was corrected
+
+
+def test_iq_features_are_saved_for_later_review(tmp_path):
+    import json
+
+    from features.extractor import FEATURE_NAMES
+
+    pr = _simulated(tmp_path)
+    row = get_result(tmp_path / "captures.sqlite3", pr.result_id)
+    data = json.loads(row["iq_features"])
+    assert list(data["features"]) == list(FEATURE_NAMES)
+    assert all(isinstance(v, float) for v in data["features"].values())
+    assert data["sample_rate_hz"] == 240_000 and data["nperseg"] == 1024

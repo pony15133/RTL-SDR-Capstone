@@ -42,6 +42,7 @@ from features.waterfall_features import WATERFALL_FEATURE_NAMES  # noqa: E402,F4
 from review import COLUMNS, META, append, labelled_ids, make_row, matrix_path, resolve  # noqa: E402,F401  (shared with the web UI)
 
 DEFAULT_OUTPUT = ROOT / "data" / "training" / "station_waterfall_features.csv"
+DEFAULT_IQ_OUTPUT = ROOT / "data" / "training" / "station_iq_features.csv"
 
 
 def open_image(path) -> None:
@@ -79,7 +80,8 @@ def ask(prompt: str, input_fn=input) -> str:
 def main(argv=None, input_fn=input) -> int:
     p = argparse.ArgumentParser(description="Label our own captures for the waterfall model.")
     p.add_argument("--db", type=Path, default=DB_PATH)
-    p.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    p.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Waterfall-model training rows")
+    p.add_argument("--iq-output", type=Path, default=DEFAULT_IQ_OUTPUT, help="IQ-model training rows")
     p.add_argument("--limit", type=int, default=1000, help="Look at this many most recent captures")
     p.add_argument("--list", action="store_true", help="Only list unlabelled captures")
     p.add_argument("--no-open", action="store_true", help="Don't open each image automatically")
@@ -112,11 +114,11 @@ def main(argv=None, input_fn=input) -> int:
             continue
         # Same as the web UI's Review page: stores the label on the capture row, moves an
         # uncertain IQ file out of uncertain/ (signal) or applies the policy (noise),
-        # and appends the training row.
+        # and appends a training row for each model.
         resolve(r["id"], int(answer), db_path=args.db, reviewer=args.labeller, policy=args.policy,
-                training_csv=args.output)
+                training_csv=args.output, iq_training_csv=args.iq_output)
         added[int(answer)] += 1
-    print(f"\nAdded {added[1]} with signal, {added[0]} without, to {args.output}")
+    print(f"\nAdded {added[1]} with signal, {added[0]} without, to {args.output} and {args.iq_output}")
     print("Retrain with it:  python train_model.py --feature-set waterfall --output models/waterfall_rf.joblib "
           f"--dataset data/training/satnogs_waterfall_features.csv {args.output.relative_to(ROOT) if args.output.is_relative_to(ROOT) else args.output}")
     return 0

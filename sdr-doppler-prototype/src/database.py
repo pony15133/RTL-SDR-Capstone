@@ -78,6 +78,10 @@ RETENTION_COLUMNS = {
     "detection_verdict": "TEXT",
     "review_status": "TEXT",
     "human_label": "INTEGER",
+    # The IQ model's 9 features for this capture (JSON), saved at detection
+    # time so a later review can add an IQ training row even after the raw
+    # IQ file was archived or deleted (see src/review.py).
+    "iq_features": "TEXT",
     "reviewed_by": "TEXT",
     "reviewed_at": "TEXT",
     # METEOR LRPT decoding (src/decode.py): status + folder of decoded images.

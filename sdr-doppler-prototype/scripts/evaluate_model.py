@@ -38,6 +38,8 @@ def evaluate(model_path, dataset_path) -> dict:
         proba, pred = np.zeros(len(y)), clf.predict(X)
     metrics = compute_metrics(y, pred, proba)
     metrics["threshold"] = bundle.decision_threshold
+    metrics["model_version"] = bundle.metadata.get("model_version")
+    metrics["feature_set"] = bundle.metadata.get("feature_set")
     return metrics
 
 
@@ -45,8 +47,14 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="External evaluation of a trained model.")
     p.add_argument("--model", required=True)
     p.add_argument("--dataset", required=True)
+    p.add_argument("--notes", default=None, help="Stored with this result in models/ml_history.csv")
+    p.add_argument("--no-history", action="store_true", help="Don't add this result to ml_history.csv")
     args = p.parse_args(argv)
     m = evaluate(args.model, args.dataset)
+    if not args.no_history:
+        from ml.history import record_external
+        record_external(args.model, args.dataset, m, model_version=m.get("model_version"),
+                        feature_set=m.get("feature_set"), notes=args.notes)
     print(f"External test on {args.dataset} ({m['n_samples']} rows, threshold {m['threshold']:.2f})")
     for k in ("accuracy", "precision", "recall", "f1_score", "roc_auc"):
         if m.get(k) is not None:

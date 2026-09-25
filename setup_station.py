@@ -17,7 +17,8 @@
 The waterfall model trains on every labelled set that exists:
 data/training/satnogs_waterfall_features.csv and, once you've labelled
 your own passes (scripts/label_station_captures.py),
-data/training/station_waterfall_features.csv.
+data/training/station_waterfall_features.csv
+(and station_iq_features.csv for the IQ model).
 """
 
 from __future__ import annotations
@@ -69,7 +70,11 @@ def main(argv=None) -> int:
 
     step("2/4 IQ model (real CAMRAS RSP-03 data)")
     dataset = PROTO / "data" / "training" / "rsp03_camras_features.csv"
-    if run([PY, "train_model.py", "--dataset", dataset, "--output", "models/random_forest.joblib",
+    station_iq = PROTO / "data" / "training" / "station_iq_features.csv"
+    iq_datasets = [dataset] + ([station_iq] if station_iq.exists() else [])
+    if station_iq.exists():
+        print(f"  + your own labelled passes: {station_iq.name}")
+    if run([PY, "train_model.py", "--dataset", *iq_datasets, "--output", "models/random_forest.joblib",
             "--model-version", "rsp03_iq_rf"], cwd=PROTO) != 0:
         problems.append("IQ model training failed (see above)")
 

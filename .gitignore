@@ -40,3 +40,11 @@ recordings/
 
 # overnight training logs
 logs/
+# client pass recordings dataset: per-pass caches and previews (rebuilt by train_client_data)
+sdr-doppler-prototype/data/client_passes/
+# local scratch folder for AI-generated drafts - not part of the project
+Claude outputs/
+
+# SatNOGS waterfall arrays and review sheets: local working files
+sdr-doppler-prototype/data/satnogs/waterfalls/
+sdr-doppler-prototype/data/satnogs/review/*.png
