@@ -80,3 +80,84 @@ def test_review_queue_filter_and_history_columns(tmp_path):
     assert [r["id"] for r in pending] == [cid]
     table = captures_table(list_results(db, 10))
     assert "verdict" in table and "uncertain" in table and "detected" in table
+
+
+# --------------------------------------------------------------------------- IQ-model training rows
+
+import json  # noqa: E402
+
+from features.extractor import FEATURE_NAMES  # noqa: E402
+
+STORED = json.dumps({"features": {n: float(i) for i, n in enumerate(FEATURE_NAMES)},
+                     "sample_rate_hz": 1_024_000.0, "nperseg": 1024, "noverlap": 512})
+
+
+def _with_features(db, cid, value=STORED):
+    from database import update_result
+    update_result(db, cid, {"iq_features": value})
+
+
+def test_review_adds_an_iq_training_row_from_saved_features(tmp_path):
+    db, cid, _ = _capture(tmp_path, "f")
+    _with_features(db, cid)
+    iq_csv = tmp_path / "iq.csv"
+    r = review.resolve(cid, 1, db_path=db, training_csv=tmp_path / "s.csv", iq_training_csv=iq_csv, reviewer="anh")
+    df = pd.read_csv(iq_csv)
+    assert r["iq_training_row_added"] and r["training_row_added"]
+    assert list(df.columns[:len(review.IQ_COLUMNS)]) == review.IQ_COLUMNS
+    assert df.label.tolist() == [1] and df.recording_id.tolist() == [f"station_{cid}"]
+    assert df.snr_db.tolist() == [0.0] and df.signal_duration_seconds.tolist() == [8.0]
+    assert df.labelled_by.tolist() == ["anh"] and df.is_synthetic.tolist() == [0]
+    # a label is final: labelling again adds nothing
+    assert review.add_iq_training_row(get_result(db, cid), 0, "x", iq_csv) is False
+
+
+def test_iq_row_survives_the_delete_policy(tmp_path):
+    db, cid, iq = _capture(tmp_path, "g")
+    _with_features(db, cid)
+    iq_csv = tmp_path / "iq.csv"
+    r = review.resolve(cid, 0, db_path=db, policy="delete-negatives", training_csv=tmp_path / "s.csv",
+                       iq_training_csv=iq_csv)
+    assert not iq.exists() and r["iq_training_row_added"]
+    assert pd.read_csv(iq_csv).label.tolist() == [0]
+
+
+def test_iq_features_recomputed_from_the_file_for_older_captures(tmp_path):
+    fs = 256_000
+    t = np.arange(fs) / fs
+    z = np.exp(2j * np.pi * 20_000 * t) * 0.5 + ([1, 1j] @ np.random.default_rng(1).normal(0, 0.05, (2, fs)))
+    raw = np.empty(2 * fs, dtype=np.uint8)
+    raw[0::2] = np.clip(z.real * 127.5 + 127.5, 0, 255)
+    raw[1::2] = np.clip(z.imag * 127.5 + 127.5, 0, 255)
+    db, cid, iq = _capture(tmp_path, "h")
+    raw.tofile(iq)
+    from database import update_result
+    update_result(db, cid, {"sample_rate": fs, "frequency_hz": 137_900_000})
+    iq_csv = tmp_path / "iq.csv"
+    r = review.resolve(cid, 1, db_path=db, training_csv=tmp_path / "s.csv", iq_training_csv=iq_csv)
+    df = pd.read_csv(iq_csv)
+    assert r["iq_training_row_added"] and df.sample_rate_hz.tolist() == [fs]
+    assert np.isfinite(df[list(FEATURE_NAMES)].to_numpy(dtype=float)).all()
+
+
+def test_no_features_and_no_file_means_no_iq_row(tmp_path):
+    db, cid, _ = _capture(tmp_path, "i")
+    _with_features(db, cid, "not json")
+    r = review.resolve(cid, 1, db_path=db, training_csv=tmp_path / "s.csv", iq_training_csv=tmp_path / "iq.csv")
+    assert r["iq_training_row_added"] is False and get_result(db, cid)["review_status"] == "signal"
+    assert not (tmp_path / "iq.csv").exists()
+
+
+def test_station_iq_rows_train_together_with_rsp03(tmp_path):
+    """The station CSV has the same layout as the RSP-03 set, so train_model takes both."""
+    from ml.train import load_dataset
+    rsp = ROOT / "data" / "training" / "rsp03_camras_features.csv"
+    if not rsp.exists():
+        pytest.skip("RSP-03 dataset not in this checkout")
+    iq_csv = tmp_path / "iq.csv"
+    for name, label in (("j", 1), ("k", 0)):
+        db, cid, _ = _capture(tmp_path, name)
+        _with_features(db, cid)
+        review.resolve(cid, label, db_path=db, training_csv=tmp_path / "s.csv", iq_training_csv=iq_csv)
+    df = load_dataset([rsp, iq_csv], FEATURE_NAMES)
+    assert len(df) == len(pd.read_csv(rsp)) + 2 and df.recording_id.notna().all()

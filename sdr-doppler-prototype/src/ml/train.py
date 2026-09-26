@@ -648,7 +648,7 @@ def run_training(args: argparse.Namespace) -> TrainingResult:
         save_feature_importance_chart(importance_report, chart_path)
 
     print_progress("Saving trained model", 100, 100)
-    return TrainingResult(
+    result = TrainingResult(
         model_path=model_path,
         metadata_path=metadata_path,
         metrics=metrics,
@@ -667,6 +667,10 @@ def run_training(args: argparse.Namespace) -> TrainingResult:
         threshold=threshold,
         threshold_selection=threshold_info,
     )
+    # Lab notebook: one row per run in models/ml_history.csv (see src/ml/history.py).
+    from ml.history import record_training
+    record_training(result, metadata, dataset_path, notes=args.notes)
+    return result
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

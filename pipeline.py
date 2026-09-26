@@ -26,6 +26,7 @@ installable package.
 
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,7 +49,7 @@ from config import DB_PATH, DEFAULT_ML_MODEL_PATH  # noqa: E402
 from database import init_db, insert_result, update_result  # noqa: E402
 from detect import detect_candidate  # noqa: E402
 from detection.ml_detector import run_ml_detection  # noqa: E402
-from features.extractor import extract_features  # noqa: E402
+from features.extractor import FEATURE_NAMES, extract_features, feature_vector_to_array  # noqa: E402
 from iq_io import IQReader  # noqa: E402
 from detection.waterfall_detector import predict_waterfall  # noqa: E402
 from doppler import STANDARD_SPAN_HZ, DopplerCurve, standard_waterfall  # noqa: E402
@@ -128,6 +129,14 @@ def save_waterfall_image(matrix, path: Path, target_hz: float, doppler: Optional
     # even after the IQ file has been archived or deleted.
     np.save(path.with_suffix(".npy"), np.asarray(matrix, dtype=np.float16))
     return path
+
+
+def iq_features_json(features, *, sample_rate_hz, nperseg, noverlap) -> str:
+    """The IQ model's features for this capture, stored on the row so a later
+    human review can turn it into an IQ training row (src/review.py)."""
+    values = feature_vector_to_array(features)
+    return json.dumps({"features": dict(zip(FEATURE_NAMES, (float(v) for v in values))),
+                       "sample_rate_hz": float(sample_rate_hz), "nperseg": int(nperseg), "noverlap": int(noverlap)})
 
 
 def recording_metadata_columns(result: RecordingResult, *, frequency_hz=None, sample_rate_hz=None) -> dict:
@@ -325,6 +334,7 @@ def process_recording(
         "decision_score": decision.score,
         "detection_verdict": decision.verdict,
         "review_status": "pending" if decision.verdict == UNCERTAIN else None,
+        "iq_features": iq_features_json(features, sample_rate_hz=sample_rate_hz, nperseg=nperseg, noverlap=noverlap),
         **recording_metadata_columns(result, frequency_hz=frequency_hz, sample_rate_hz=sample_rate_hz),
     }
     init_db(db_path)

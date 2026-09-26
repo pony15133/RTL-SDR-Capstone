@@ -204,7 +204,7 @@ pages.capture = async (el, params, id) => {
         <button class="good" data-label="1">${reviewed ? "Mark as" : "It's a"} signal</button><button class="bad" data-label="0">${reviewed ? "Mark as" : "It's"} noise</button>
         ${isMeteor(c.satellite_name) && d.iq_exists ? `<button id="decode" ${d.decoding || c.decode_status === "decoding" ? "disabled" : ""}>${d.decoding || c.decode_status === "decoding" ? "Decoding…" : "Decode satellite images"}</button>` : ""}
         ${d.iq_exists ? `<a class="btn" href="/file?path=${encodeURIComponent(c.raw_iq_file_path)}">Download IQ</a>` : ""}</div>
-      <p class="small muted" style="margin:8px 0 0">Your label always wins over the model, is saved with the capture and is added to the training data for the waterfall model.</p>
+      <p class="small muted" style="margin:8px 0 0">Your label always wins over the model, is saved with the capture and is added to the training data for both detection models (waterfall and IQ).</p>
     </section>
     <section class="card s6"><h3>Doppler-corrected waterfall</h3>${c.waterfall_image_path ? `<img class="wf tall" src="${img(c.waterfall_image_path)}" alt="Waterfall">` : `<div class="empty">No waterfall</div>`}</section>
     <section class="card s6"><h3>Spectrogram</h3>${c.spectrogram_image_path ? `<img class="wf tall" src="${img(c.spectrogram_image_path)}" alt="Spectrogram">` : `<div class="empty">No spectrogram image</div>`}</section>

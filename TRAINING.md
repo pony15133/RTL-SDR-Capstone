@@ -84,7 +84,14 @@ python sdr-doppler-prototype/scripts/label_station_captures.py
 
 It opens each unlabelled pass's waterfall and asks for `1` (signal), `0` (none), `s` (skip) or `q` (quit). **Label by looking at the waterfall, not by what the model said.** Otherwise the model just learns its own mistakes.
 
-The labels go into `data/training/station_waterfall_features.csv`. After that, `setup` trains on SatNOGS and our own passes together. Each pass is its own group, so a pass never appears in both train and test.
+Each label (from this script or the web Review page) goes into two files:
+
+- `data/training/station_waterfall_features.csv` for the waterfall model (trains together with SatNOGS)
+- `data/training/station_iq_features.csv` for the IQ model (trains together with RSP-03)
+
+The IQ features are saved on the capture row when the pass is processed, so the IQ row is added even if the raw IQ file was archived or deleted. Older captures without saved features are recomputed from the IQ file if it is still there. After that, `setup` trains both models on the public data and our own passes together. Each pass is its own group, so a pass never appears in both train and test.
+
+Note: the RSP-03 rows are 1-second windows, while station rows describe the first 120 s of a whole pass, which is also what the IQ model scores at runtime. Station rows are therefore the closest match to real use, and they matter more as they grow.
 
 ## What changed in the model
 
@@ -105,3 +112,28 @@ The labels go into `data/training/station_waterfall_features.csv`. After that, `
 - SatNOGS is mostly packet satellites (FSK/GMSK bursts). Our targets are continuous: METEOR LRPT and CW-like carriers. That is why `--preset station` and our own passes matter.
 - The held-out test set for 400 observations is only 60 observations, so its F1 moves by ±0.05 between random splits. Quote cross-validation and RSP-03 alongside it, and the test set gets more reliable as the data grows.
 - Features were tried and rejected when they didn't help. For example, off-centre trace tracking and pixel-distribution shape gave no CV gain, so they were left out.
+
+## Record of every run
+
+Every `train_model.py` run and every `scripts/evaluate_model.py` run adds one row to `sdr-doppler-prototype/models/ml_history.csv` (date, data used, sizes, test and external scores, git commit, notes). Nothing is overwritten, so it is the project's lab notebook. Add `--notes "what changed"` to say why a run happened. The milestones before this log existed are in `docs/ml_milestones.csv`, and the presentation charts are in `presentation/figures/`.
+
+## The client's labelled passes (client_pass_recordings)
+
+The client recorded four real passes as ~1-second spectrogram snapshots (250 x 1024, dB, every ~1.6 s), sorted into folders by pass and elevation.
+
+Folder `E:\CAPSTONE\CAP2\client_pass_recordings` (outside the repo, ~20 GB, not committed). Each pass folder is named `<SATELLITE>_<passN>_<client's verdict>`; the sub-folders keep the client's elevation names (`notinsky`, `justrisen`, `max35`, `17to5`, ...).
+
+| Pass folder | Client's original name | Frequency | Used for |
+|---|---|---|---|
+| SARAL_pass1_detected | DetectedSatellite(SARAL) | 465.988 MHz | training |
+| LILACSAT-2_not_detected | Nondetection(LILACSAT2) | 437.200 MHz | training (all noise: in the sky, nothing received) |
+| SARAL_pass2_detected | DetectedSatellite2(SARAL) | 465.988 MHz | held-out test (different day) |
+| NORAD-16_marginal | MarginalDetection(NORAD-16) | 465.988 MHz | held-out test (hard case) |
+
+```
+train_client_data.bat                 (finds ..\..\client_pass_recordings next to the CODE folder, or add --root <folder>)
+```
+
+It builds the datasets (`scripts/build_client_spectrogram_set.py`), scores the current models on the held-out passes, trains `iq_rf_client` and `waterfall_rf_client` with the client data added, and scores them again. Nothing is replaced until you run `train_client_data.bat --promote iq` (or `waterfall`, or `both`).
+
+How the labels are made: fixed local spurs (and the DC bin) are removed using the part of the pass where the satellite is below the horizon; the Doppler track is found from the strongest peaks within +/-15 kHz and fitted as a decreasing curve; a snapshot is **signal** when it is in the sky and >= 6 dB on the track, **noise** when the satellite is below the horizon (or the pass is a non-detection), and **dropped** when it is in the sky but faint. **Check the previews** in `sdr-doppler-prototype/data/client_passes/preview/` - one picture per pass with the track and labels drawn on it.
