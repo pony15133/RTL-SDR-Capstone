@@ -1,6 +1,6 @@
 # GUI start-up smoke test
 
-Generated 2026-09-24T09:07:28+00:00 on commit `ecbe2781682ad0fa4466d63b6216b0d86ca22f12` by `tools/gui_smoke_test.py` - Python 3.12.3, Tk 8.6, Linux-6.18.44-fc-v37-x86_64-with-glibc2.39.
+Generated 2026-10-05T12:12:19+00:00 on commit `040c140f28ce292f3b93299ae403604067b9327d` by `tools/gui_smoke_test.py` - Python 3.12.3, Tk 8.6, Linux-6.18.44-fc-v70-x86_64-with-glibc2.39.
 
 **Result: ALL CHECKS PASSED**
 

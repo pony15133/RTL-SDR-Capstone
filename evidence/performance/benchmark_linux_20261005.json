@@ -1,0 +1,61 @@
+{
+  "sample_rate": 1024000,
+  "max_detection_seconds": 120.0,
+  "cases": [
+    {
+      "seconds": 10.0,
+      "file_mb": 20.48,
+      "samples": 10240000,
+      "elapsed_s": 3.4,
+      "peak_rss_mb": 717.3,
+      "baseline_rss_mb_after_imports": 543.1,
+      "db_row": 1,
+      "rule_detected": true,
+      "ml_status": "AVAILABLE",
+      "waterfall_status": "AVAILABLE",
+      "success": true
+    },
+    {
+      "seconds": 20.0,
+      "file_mb": 40.96,
+      "samples": 20480000,
+      "elapsed_s": 5.61,
+      "peak_rss_mb": 1265.4,
+      "baseline_rss_mb_after_imports": 543.2,
+      "db_row": 1,
+      "rule_detected": true,
+      "ml_status": "AVAILABLE",
+      "waterfall_status": "AVAILABLE",
+      "success": true
+    },
+    {
+      "seconds": 60.0,
+      "file_mb": 122.88,
+      "samples": 61440000,
+      "elapsed_s": 14.33,
+      "peak_rss_mb": 3455.5,
+      "baseline_rss_mb_after_imports": 543.2,
+      "db_row": 1,
+      "rule_detected": true,
+      "ml_status": "AVAILABLE",
+      "waterfall_status": "AVAILABLE",
+      "success": true
+    }
+  ],
+  "notes": [
+    "Detection (spectrogram + features + rule/ML) reads at most `max_detection_seconds` of the file; the Doppler waterfall streams through the whole file. Longer captures therefore cost more time but should not need more memory beyond the cap.",
+    "A negative return code with no output means the child process was killed (on Linux usually the out-of-memory killer)."
+  ],
+  "environment": {
+    "python": "3.13.16",
+    "platform": "Linux-6.18.44-fc-v70-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "processor": "x86_64",
+    "cpu_count": 2,
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "generated_utc": "2026-10-05T12:13:01+00:00",
+    "ram_gb": 8.4,
+    "git_commit": "040c140f28ce292f3b93299ae403604067b9327d"
+  }
+}
