@@ -1,0 +1,233 @@
+{
+  "all_checks_passed": true,
+  "runs": [
+    {
+      "run": "A: auto_capture --demo",
+      "checks": [
+        {
+          "check": "auto_capture --demo exit code 0",
+          "ok": true,
+          "detail": "exit 0"
+        },
+        {
+          "check": "one capture_results row",
+          "ok": true,
+          "detail": "1 row(s)"
+        },
+        {
+          "check": "recording SUCCESS and processed",
+          "ok": true,
+          "detail": "SUCCESS/DETECTED"
+        },
+        {
+          "check": "scheduled AOS/LOS and actual start/stop stored",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "offset tuning: tuned 150 kHz below the downlink",
+          "ok": true,
+          "detail": "target 137900000 tuned 137750000"
+        },
+        {
+          "check": "rule detector result stored",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "ML detector ran (model present)",
+          "ok": true,
+          "detail": "model_version rsp03_iq_rf"
+        },
+        {
+          "check": "retention decision stored",
+          "ok": true,
+          "detail": "archived: ML confidence 0.14 < threshold 0.50"
+        },
+        {
+          "check": "IQ file where the row says it is (or deleted)",
+          "ok": true,
+          "detail": "/tmp/sdr_verify_ezzprczk/demo/recordings/rejected/METEOR-M2-3_20260924_090640_137750000Hz.iq"
+        },
+        {
+          "check": "recorder JSON sidecar exists",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "spectrogram PNG exists",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "summary JSON exists",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "no Doppler correction on the TLE-less demo pass (expected)",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "status_log has scheduler WAITING, recorder SUCCESS, pipeline DONE",
+          "ok": true,
+          "detail": [
+            [
+              "pipeline",
+              "DONE"
+            ],
+            [
+              "recorder",
+              "SUCCESS"
+            ],
+            [
+              "scheduler",
+              "WAITING"
+            ]
+          ]
+        },
+        {
+          "check": "schedule.json written",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "heartbeat live_status.json written, final phase 'stopped'",
+          "ok": true,
+          "detail": "stopped"
+        },
+        {
+          "check": "dashboard snapshot shows the capture and totals",
+          "ok": true,
+          "detail": "totals {'n': 1, 'ok': 1, 'detected': 0, 'kept': 0, 'archived': 1, 'deleted': 0}"
+        }
+      ],
+      "capture_row": {
+        "satellite_name": "METEOR-M2-3",
+        "norad_id": 57166,
+        "frequency_hz": 137750000,
+        "target_frequency_hz": 137900000,
+        "sample_rate": 1024000,
+        "gain": 30.0,
+        "recording_status": "SUCCESS",
+        "scheduled_aos": "2026-09-24T09:06:41.398658+00:00",
+        "scheduled_los": "2026-09-24T09:06:51.398658+00:00",
+        "actual_recording_start": "2026-09-24T09:06:40.399276+00:00",
+        "actual_recording_stop": "2026-09-24T09:06:52.399639+00:00",
+        "recording_duration_seconds": 12.000363,
+        "output_file_size": 65536,
+        "simulated": 1,
+        "processing_status": "DETECTED",
+        "rule_detection_result": 0,
+        "rule_confidence_score": 0.6666666666666666,
+        "ml_detection_result": 0,
+        "ml_confidence_score": 0.1407142857142857,
+        "model_version": "rsp03_iq_rf",
+        "wf_ml_detection_result": null,
+        "doppler_corrected": 0,
+        "doppler_max_hz": null,
+        "decision_source": "ml",
+        "decision_score": 0.1407142857142857,
+        "iq_retention": "archived",
+        "retention_reason": "ML confidence 0.14 < threshold 0.50",
+        "raw_iq_file_path": "/tmp/sdr_verify_ezzprczk/demo/recordings/rejected/METEOR-M2-3_20260924_090640_137750000Hz.iq",
+        "metadata_file_path": "/tmp/sdr_verify_ezzprczk/demo/recordings/METEOR-M2-3_20260924_090640_137750000Hz.json",
+        "spectrogram_image_path": "/tmp/sdr_verify_ezzprczk/demo/results/METEOR-M2-3_20260924_090640_137750000Hz_2026-09-24T090652+0000_spectrogram.png",
+        "waterfall_image_path": "/tmp/sdr_verify_ezzprczk/demo/results/METEOR-M2-3_20260924_090640_137750000Hz_2026-09-24T090652+0000_waterfall.png"
+      },
+      "status_log_states": [
+        [
+          "pipeline",
+          "DONE"
+        ],
+        [
+          "recorder",
+          "SUCCESS"
+        ],
+        [
+          "scheduler",
+          "WAITING"
+        ]
+      ]
+    },
+    {
+      "run": "B: TLE pass via run_plan",
+      "checks": [
+        {
+          "check": "recording SUCCESS",
+          "ok": true,
+          "detail": "SUCCESS"
+        },
+        {
+          "check": "Doppler curve computed from the TLE and applied",
+          "ok": true,
+          "detail": "max |Doppler| 9688 Hz"
+        },
+        {
+          "check": "Doppler-corrected waterfall PNG exists",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "check": "pass_positions rows stored (az/el/range/Doppler)",
+          "ok": true,
+          "detail": "1 point(s)"
+        }
+      ],
+      "tle_epoch": "2024-01-01T12:00:00+00:00",
+      "capture_row": {
+        "satellite_name": "ISS",
+        "norad_id": 25544,
+        "frequency_hz": 437650000,
+        "target_frequency_hz": 437800000,
+        "sample_rate": 1024000,
+        "gain": 35.0,
+        "recording_status": "SUCCESS",
+        "scheduled_aos": "2026-09-24T09:06:55.611805+00:00",
+        "scheduled_los": "2026-09-24T09:06:59.611805+00:00",
+        "actual_recording_start": "2026-09-24T09:06:55.112662+00:00",
+        "actual_recording_stop": "2026-09-24T09:07:00.112878+00:00",
+        "recording_duration_seconds": 5.000216,
+        "output_file_size": 65536,
+        "simulated": 1,
+        "processing_status": "DETECTED",
+        "rule_detection_result": 0,
+        "rule_confidence_score": 0.6666666666666666,
+        "ml_detection_result": 0,
+        "ml_confidence_score": 0.1427142857142857,
+        "model_version": "rsp03_iq_rf",
+        "wf_ml_detection_result": null,
+        "doppler_corrected": 1,
+        "doppler_max_hz": 9688.237758278008,
+        "decision_source": "ml",
+        "decision_score": 0.1427142857142857,
+        "iq_retention": "archived",
+        "retention_reason": "ML confidence 0.14 < threshold 0.50",
+        "raw_iq_file_path": "/tmp/sdr_verify_ezzprczk/tle/recordings/rejected/ISS_20260924_090655_437650000Hz.iq",
+        "metadata_file_path": "/tmp/sdr_verify_ezzprczk/tle/recordings/ISS_20260924_090655_437650000Hz.json",
+        "spectrogram_image_path": "/tmp/sdr_verify_ezzprczk/tle/results/ISS_20260924_090655_437650000Hz_2026-09-24T090700+0000_spectrogram.png",
+        "waterfall_image_path": "/tmp/sdr_verify_ezzprczk/tle/results/ISS_20260924_090655_437650000Hz_2026-09-24T090700+0000_waterfall.png"
+      },
+      "track_points": 1,
+      "first_track_point": {
+        "id": 1,
+        "capture_id": 1,
+        "norad_id": 25544,
+        "satellite_name": "ISS",
+        "timestamp_utc": "2026-09-24T09:06:55+00:00",
+        "azimuth_deg": 346.817,
+        "elevation_deg": -5.8,
+        "range_km": 2188.313,
+        "doppler_hz": 9688.2
+      }
+    }
+  ],
+  "note": "Simulated recorder output (random bytes): detection outcomes are meaningless; this verifies that every stage runs and stores its results. Not live-hardware evidence.",
+  "environment": {
+    "python": "3.11.15",
+    "platform": "Linux-6.18.44-fc-v37-x86_64-with-glibc2.39",
+    "git_commit": "ecbe2781682ad0fa4466d63b6216b0d86ca22f12",
+    "generated_utc": "2026-09-24T09:07:01+00:00"
+  }
+}

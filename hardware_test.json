@@ -1,0 +1,9 @@
+{
+  "name": "KISS92 Hardware Test",
+  "frequency_hz": 92000000,
+  "sample_rate": 1024000,
+  "gain": 30,
+  "duration_seconds": 300,
+  "start_at": "2026-09-25T17:30:00+08:00",
+  "output_dir": "recordings/kiss92_test"
+}

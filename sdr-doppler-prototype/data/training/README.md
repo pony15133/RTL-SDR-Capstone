@@ -62,9 +62,8 @@ verified labelled captures behind it, it must be considered:
 
 1. Use the RTL-SDR recorder (`iq-recorder/`) to capture real signals:
    - **Positive candidates**: recordings made during a known satellite
-     pass (predictable AOS/LOS from a pass-prediction tool such as
-     Gpredict, ahead of the automated SatNOGS integration planned for
-     later).
+     pass (`auto_capture.py` predicts AOS/LOS from TLEs and records it
+     automatically; `--list-only` prints the schedule).
    - **Negative examples**: recordings made outside any known pass window
      at the same frequency, deliberately mistuned captures, or known
      local interference.

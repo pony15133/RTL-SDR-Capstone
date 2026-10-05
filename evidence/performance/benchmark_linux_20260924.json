@@ -1,0 +1,74 @@
+{
+  "sample_rate": 1024000,
+  "max_detection_seconds": 120.0,
+  "cases": [
+    {
+      "seconds": 10.0,
+      "file_mb": 20.48,
+      "samples": 10240000,
+      "elapsed_s": 6.01,
+      "peak_rss_mb": 721.0,
+      "baseline_rss_mb_after_imports": 504.2,
+      "db_row": 1,
+      "rule_detected": true,
+      "ml_status": "AVAILABLE",
+      "waterfall_status": "MODEL_NOT_AVAILABLE",
+      "success": true
+    },
+    {
+      "seconds": 60.0,
+      "file_mb": 122.88,
+      "samples": 61440000,
+      "elapsed_s": 35.03,
+      "peak_rss_mb": 3459.3,
+      "baseline_rss_mb_after_imports": 504.2,
+      "db_row": 1,
+      "rule_detected": true,
+      "ml_status": "AVAILABLE",
+      "waterfall_status": "MODEL_NOT_AVAILABLE",
+      "success": true
+    },
+    {
+      "seconds": 120.0,
+      "file_mb": 245.76,
+      "samples": 122880000,
+      "elapsed_s": 70.73,
+      "peak_rss_mb": 6744.6,
+      "baseline_rss_mb_after_imports": 504.3,
+      "db_row": 1,
+      "rule_detected": true,
+      "ml_status": "AVAILABLE",
+      "waterfall_status": "MODEL_NOT_AVAILABLE",
+      "success": true
+    },
+    {
+      "seconds": 600.0,
+      "file_mb": 1228.8,
+      "samples": 614400000,
+      "elapsed_s": 69.95,
+      "peak_rss_mb": 6744.9,
+      "baseline_rss_mb_after_imports": 504.3,
+      "db_row": 1,
+      "rule_detected": true,
+      "ml_status": "AVAILABLE",
+      "waterfall_status": "MODEL_NOT_AVAILABLE",
+      "success": true
+    }
+  ],
+  "notes": [
+    "Detection (spectrogram + features + rule/ML) reads at most `max_detection_seconds` of the file; the Doppler waterfall streams through the whole file. Longer captures therefore cost more time but should not need more memory beyond the cap.",
+    "A negative return code with no output means the child process was killed (on Linux usually the out-of-memory killer)."
+  ],
+  "environment": {
+    "python": "3.11.15",
+    "platform": "Linux-6.18.44-fc-v37-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "processor": "x86_64",
+    "cpu_count": 4,
+    "numpy": "2.4.6",
+    "scipy": "1.17.1",
+    "generated_utc": "2026-09-24T08:54:43+00:00",
+    "ram_gb": 16.9,
+    "git_commit": "7ed7ec43c8b0b43b020257de6e68cc18d43eebc3"
+  }
+}

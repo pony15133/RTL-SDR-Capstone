@@ -83,6 +83,9 @@ class Settings:
     keep_threshold: Optional[float] = None  # None = the model's tuned threshold (two-level mode only)
     #: Confidence range judged "uncertain": IQ always kept for review. None = two levels.
     uncertain_band: Optional[tuple] = DEFAULT_UNCERTAIN_BAND
+    #: Detection reads at most this many seconds of each recording. Peak memory
+    #: grows with it (see evidence/performance/); lower it on an 8 GB computer.
+    max_detection_seconds: float = 120.0
     tle_file: Optional[str] = None
     tle_cache_dir: str = "tle_cache"
     save_image: bool = True
@@ -171,6 +174,7 @@ def load_settings(args) -> Settings:
         retention=str(pick("retention", "archive-negatives")),
         keep_threshold=(None if pick("keep_threshold", None) is None else float(pick("keep_threshold", None))),
         uncertain_band=parse_band(pick("uncertain_band", list(DEFAULT_UNCERTAIN_BAND))),
+        max_detection_seconds=float(pick("max_detection_seconds", 120.0)),
         tle_file=pick("tle_file", None),
         tle_cache_dir=str(pick("tle_cache_dir", "tle_cache")),
         save_image=not args.no_image and bool(defaults.get("save_image", True)),
@@ -439,6 +443,7 @@ def run_plan(plan: List[PlannedPass], settings: Settings, *, stop_event: Optiona
             ml_model_path=Path(settings.ml_model) if settings.ml_model else None,
             save_image=settings.save_image, retention_policy=settings.retention,
             keep_threshold=settings.keep_threshold, uncertain_band=settings.uncertain_band, log_failures=True,
+            max_detection_seconds=settings.max_detection_seconds,
         )
         log_status(db_path, "recorder", result.status.value,
                    f"{t.name}: {result.error_message or result.output_file}")
@@ -501,6 +506,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--retention", choices=POLICIES, help="Default archive-negatives")
     p.add_argument("--keep-threshold", type=float)
     p.add_argument("--uncertain-band", help="Confidence range judged 'uncertain' (IQ kept for review), e.g. 0.3,0.7; 'off' = two levels")
+    p.add_argument("--max-detection-seconds", type=float,
+                   help="Seconds of each recording used for detection (default 120; lower = less memory)")
     p.add_argument("--tle-file", help="Use this TLE file instead of downloading from CelesTrak")
     p.add_argument("--no-image", action="store_true", help="Don't save spectrogram PNGs")
     p.add_argument("--simulate", action="store_true", help="No hardware: the recorder writes placeholder files")
