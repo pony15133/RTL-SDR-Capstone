@@ -241,3 +241,23 @@ def test_downloader_survives_api_errors(tmp_path, monkeypatch):
     monkeypatch.setattr(fetch, "http_get", always_fail)
     assert fetch.main(["--output", str(tmp_path / "x.csv"), "--arrays-dir", str(tmp_path / "wf"),
                        "--per-class", "3", "--days-back", "1", "--delay", "0", "--page-delay", "0"]) == 0
+
+
+def test_rebuild_features_keeps_dataset_when_no_arrays_are_saved(tmp_path):
+    # A fresh clone has the committed feature CSV but not the git-ignored arrays:
+    # setup's --rebuild-features step must not wipe it.
+    csv = tmp_path / "satnogs.csv"
+    pd.DataFrame({"satnogs_id": [1, 2, 3], "label": [1, 0, 1], "wf_peak_z": [0.1, 0.2, 0.3]}).to_csv(csv, index=False)
+    before = csv.read_text()
+    assert fetch.rebuild_features(csv, tmp_path / "no_arrays_here") == 3
+    assert csv.read_text() == before
+
+
+def test_rebuild_features_still_drops_rows_whose_array_is_missing(tmp_path):
+    arrays = tmp_path / "arrays"
+    arrays.mkdir()
+    np.save(arrays / "1.npy", np.random.default_rng(0).normal(size=(128, 128)).astype(np.float32))
+    csv = tmp_path / "satnogs.csv"
+    pd.DataFrame({"satnogs_id": [1, 2], "label": [1, 0]}).to_csv(csv, index=False)
+    assert fetch.rebuild_features(csv, arrays) == 1
+    assert list(pd.read_csv(csv)["satnogs_id"]) == [1]

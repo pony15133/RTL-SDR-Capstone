@@ -134,6 +134,8 @@ Folder `E:\CAPSTONE\CAP2\client_pass_recordings` (outside the repo, ~20 GB, not 
 train_client_data.bat                 (finds ..\..\client_pass_recordings next to the CODE folder, or add --root <folder>)
 ```
 
+Without the raw recordings (for example on a fresh clone), add `--skip-build` to use the committed `client_passes_*` CSVs instead.
+
 It builds the datasets (`scripts/build_client_spectrogram_set.py`), scores the current models on the held-out passes, trains `iq_rf_client` and `waterfall_rf_client` with the client data added, and scores them again. Nothing is replaced until you run `train_client_data.bat --promote iq` (or `waterfall`, or `both`).
 
 How the labels are made: fixed local spurs (and the DC bin) are removed using the part of the pass where the satellite is below the horizon; the Doppler track is found from the strongest peaks within +/-15 kHz and fitted as a decreasing curve; a snapshot is **signal** when it is in the sky and >= 6 dB on the track, **noise** when the satellite is below the horizon (or the pass is a non-detection), and **dropped** when it is in the sky but faint. **Check the previews** in `sdr-doppler-prototype/data/client_passes/preview/` - one picture per pass with the track and labels drawn on it.

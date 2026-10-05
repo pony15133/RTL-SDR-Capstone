@@ -325,11 +325,17 @@ def save_parse_check(png_bytes: bytes, matrix: np.ndarray, out: Path, title: str
 
 def rebuild_features(csv_path: Path, arrays_dir: Path) -> int:
     """Recompute every feature column from the saved 128x128 arrays (after
-    the feature set changes). Rows whose array is missing are dropped.
+    the feature set changes). Rows whose array is missing are dropped, unless
+    no array is present at all (fresh clone), in which case nothing is changed.
     Returns the number of rows written."""
     import pandas as pd
 
     df = pd.read_csv(csv_path)
+    if len(df) and not any((arrays_dir / f"{sid}.npy").exists() for sid in df["satnogs_id"]):
+        # A fresh clone has the committed feature CSV but not the (git-ignored) arrays.
+        # Dropping every row would wipe the dataset, so keep it as it is.
+        print(f"No saved waterfall arrays in {arrays_dir}: keeping the {len(df)} existing rows unchanged")
+        return len(df)
     keep, feats = [], []
     for i, sid in enumerate(df["satnogs_id"]):
         f = arrays_dir / f"{sid}.npy"

@@ -1,6 +1,8 @@
 # Requirements traceability
 
-All 34 requirements are implemented and covered by automated tests; 7 still need a real pass recorded with our own dongle before they can be called finished.
+All 34 requirements in this table are implemented and covered by automated tests; 7 still need a real pass recorded with our own dongle before they can be called finished.
+
+> This table uses the team's own 34-item list. Against the original SRS v1.0 wording (REQ-1 to REQ-13, see the requirement matrix), REQ-3 "validate input data" is partial and REQ-12 / REQ-13 (detect abnormal signal patterns / flag anomalies) are **not implemented**.
 
 FR = Capstone 1 SRS functional scope · CR = later client and supervisor requests (dated) · NFR = non-functional requirements. Test files are under `tests/`, `iq-recorder/tests/` and `sdr-doppler-prototype/tests/`; manual checks are in [TESTING.md](TESTING.md).
 
@@ -32,7 +34,7 @@ FR = Capstone 1 SRS functional scope · CR = later client and supervisor request
 | CR11 | Safe long unattended runs | station_guard.py (disk guard, retries, keep awake, daily log); run_station restart loop | test_station_guard.py | Khoa | Done |
 | NFR1 | Performance on standard consumer hardware | Streaming readers; no GPU; background decoding | Full chain demo in 20 s (TESTING.md E) | Da | Done |
 | NFR2 | Reliability despite SDR instability | Retries, loop restart, failed runs logged, row saved before file action | test_station_guard.py, test_pipeline.py | Khoa | Done |
-| NFR3 | Maintainability (modular, easy to extend) | Separate recorder / processing / ML / storage / web modules | 390 automated tests | Da | Done |
+| NFR3 | Maintainability (modular, easy to extend) | Separate recorder / processing / ML / storage / web modules | Automated test suite (counts in evidence/tests/TEST_RESULTS.md) | Da | Done |
 | NFR4 | Scalability (new satellites and detectors without redesign) | Satellites in config; detectors behind one interface | test_auto_capture.py | Tuan Anh | Done |
 | NFR5 | Storage efficiency | Retention policies; pruning of rejected recordings when disk is low | test_pipeline.py, test_station_guard.py | Andre | Done |
 | NFR6 | Compatibility with RTL-SDR and Python scientific libraries | rtl_sdr tools; NumPy / SciPy / scikit-learn | pipeline.py --doctor | Khoa | Done |

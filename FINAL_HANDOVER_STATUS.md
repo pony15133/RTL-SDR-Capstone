@@ -1,5 +1,7 @@
 # Final handover status
 
+> **Historical record (24 Sep 2026).** This file describes commit `ecbe278` and is kept unchanged as handover evidence. The final reconciled code and its test results are recorded in [`evidence/tests/TEST_RESULTS.md`](evidence/tests/TEST_RESULTS.md); later work (waterfall model, client-pass data, three-level verdict, web interface, station guard, METEOR decoding) is described in README.md.
+
 **Code commit:** `ecbe2781682ad0fa4466d63b6216b0d86ca22f12` (branch `claude/laughing-darwin-6rmhv6`, based on
 `main` at `e8fd55f`). The evidence files in `evidence/` were generated from this commit, except the performance
 benchmark (from `7ed7ec4`; the processing code it measures has not changed since). Date: 24 Sep 2026.
